@@ -1,0 +1,7 @@
+# Local RustFS S3-compatible object storage for development.
+# Uses named Docker volumes so RustFS's non-root container user can write safely.
+
+[daemons.rustfs]
+run = "exec docker run --rm --name objsds-rustfs -p 9000:9000 -p 9001:9001 -v objsds-rustfs-data:/data -v objsds-rustfs-logs:/logs rustfs/rustfs:latest"
+ready_port = 9000
+retry = 3
