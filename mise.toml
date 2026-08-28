@@ -1,0 +1,41 @@
+[tools]
+hk = "latest"
+pkl = "latest"
+pitchfork = "latest"
+rust = "stable"
+typos = "latest"
+"cargo:cargo-deny" = "latest"
+
+[env]
+HK_MISE = 1
+
+[hooks]
+postinstall = "hk install --mise"
+
+[tasks.pre-commit]
+description = "Run pre-commit checks"
+run = "hk run pre-commit"
+
+[tasks.check]
+description = "Run project checks through hk"
+run = "hk run check"
+
+[tasks.test]
+description = "Run Rust tests"
+run = "cargo test --all-targets"
+
+[tasks.fmt]
+description = "Check Rust formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks.lint]
+description = "Run Clippy with warnings denied"
+run = "cargo clippy --all-targets --all-features -- -D warnings"
+
+[tasks.deny]
+description = "Check dependency advisories, licenses, bans, and sources"
+run = "cargo deny check"
+
+[tasks.ci]
+description = "Run the complete validation suite"
+depends = ["fmt", "lint", "test", "deny"]

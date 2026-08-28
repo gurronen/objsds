@@ -1,0 +1,36 @@
+# cargo-deny configuration for objsds.
+# Keep this policy intentionally small; tighten it as dependencies are added.
+
+[advisories]
+version = 2
+
+[bans]
+# Start with a dependency-free library. Add an explicit entry to `allow` when
+# a dependency is intentionally approved.
+deny = [{ name = "*" }]
+allow-workspace = true
+
+# Duplicate versions are often harmless during early development, but make
+# them visible so they can be consolidated deliberately.
+multiple-versions = "warn"
+
+# Avoid unreviewed wildcard dependency requirements.
+wildcards = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
