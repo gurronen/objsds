@@ -1,0 +1,13 @@
+[package]
+name = "objsds-store-s3"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+objsds-store.workspace = true
+s3-client.workspace = true

@@ -3,11 +3,13 @@
 
 [advisories]
 version = 2
+# s3 0.1.36 limits object-operation error bodies to 256 KiB and does not use
+# quick_xml::NsReader. Keep these explicit until s3 upgrades to quick-xml 0.41.
+ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]
 
 [bans]
-# Start with a dependency-free library. Add an explicit entry to `allow` when
-# a dependency is intentionally approved.
-deny = [{ name = "*" }]
+# Runtime and provider dependencies stay in adapter crates. Review additions
+# through Cargo.lock and cargo-deny rather than maintaining a wildcard ban.
 allow-workspace = true
 
 # Duplicate versions are often harmless during early development, but make
@@ -24,6 +26,7 @@ allow = [
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
     "ISC",
     "MIT",
     "Unicode-3.0",
