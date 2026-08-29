@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{CompatibilityError, Error};
 
 pub(crate) const FORMAT_VERSION: u32 = 1;
 
@@ -10,22 +10,22 @@ pub(crate) fn validate<E>(
     expected_schema: &str,
 ) -> Result<(), Error<E>> {
     if format_version != FORMAT_VERSION {
-        return Err(Error::Incompatible {
-            expected: format!("format version {FORMAT_VERSION}"),
-            observed: format!("format version {format_version}"),
-        });
+        return Err(Error::Incompatible(CompatibilityError::FormatVersion {
+            expected: FORMAT_VERSION,
+            observed: format_version,
+        }));
     }
     if observed_kind != expected_kind {
-        return Err(Error::Incompatible {
+        return Err(Error::Incompatible(CompatibilityError::Kind {
             expected: expected_kind.to_owned(),
             observed: observed_kind.to_owned(),
-        });
+        }));
     }
     if observed_schema != expected_schema {
-        return Err(Error::Incompatible {
-            expected: format!("schema {expected_schema}"),
-            observed: format!("schema {observed_schema}"),
-        });
+        return Err(Error::Incompatible(CompatibilityError::Schema {
+            expected: expected_schema.to_owned(),
+            observed: observed_schema.to_owned(),
+        }));
     }
     Ok(())
 }

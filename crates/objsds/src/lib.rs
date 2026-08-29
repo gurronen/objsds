@@ -8,7 +8,9 @@ mod log;
 mod map;
 
 pub use client::{BuildError, Objsds, ObjsdsBuilder};
-pub use error::{Error, Result};
+pub use error::{
+    AlreadyExistsError, CompatibilityError, ConflictError, DocumentError, Error, StoreError,
+};
 pub use log::{Log, LogBuilder, LogId, Record};
 pub use map::{InsertIfAbsent, Map, MapBuilder};
 pub use objsds_store::Version;

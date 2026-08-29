@@ -8,12 +8,12 @@ use serde::de::DeserializeOwned;
 use super::Map;
 use crate::client::{BuildError, location};
 use crate::lifecycle::create;
-use crate::{Error, Result};
+use crate::{AlreadyExistsError, Error, StoreError};
 
 /// Builder for one UTF-8/JSON Map.
 pub struct MapBuilder<S, V> {
     store: Arc<S>,
-    location: std::result::Result<Location, BuildError>,
+    location: Result<Location, BuildError>,
     schema: Option<String>,
     value: PhantomData<fn() -> V>,
 }
@@ -34,7 +34,7 @@ impl<S, V> MapBuilder<S, V> {
         self
     }
 
-    fn finish(self) -> std::result::Result<Map<S, V>, BuildError> {
+    fn finish(self) -> Result<Map<S, V>, BuildError> {
         let schema = self.schema.ok_or(BuildError::MissingSchema)?;
         if schema.is_empty() {
             return Err(BuildError::MissingSchema);
@@ -49,25 +49,25 @@ impl<S, V> MapBuilder<S, V> {
 }
 
 impl<S: ObjectStore, V: Serialize + DeserializeOwned> MapBuilder<S, V> {
-    pub fn create(self) -> Result<Map<S, V>, S::Error> {
+    pub fn create(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
         let bytes = map.empty_bytes()?;
         create(map.store.as_ref(), &map.location, &bytes)?;
         Ok(map)
     }
 
-    pub fn open(self) -> Result<Map<S, V>, S::Error> {
+    pub fn open(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
         map.read()?;
         Ok(map)
     }
 
-    pub fn open_or_create(self) -> Result<Map<S, V>, S::Error> {
+    pub fn open_or_create(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
         if map
             .store
             .get(&map.location)
-            .map_err(Error::Store)?
+            .map_err(|source| Error::Store(StoreError { source }))?
             .is_some()
         {
             map.read()?;
@@ -77,7 +77,7 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> MapBuilder<S, V> {
         let bytes = map.empty_bytes()?;
         match create(map.store.as_ref(), &map.location, &bytes) {
             Ok(_) => Ok(map),
-            Err(Error::AlreadyExists { .. }) => {
+            Err(Error::AlreadyExists(AlreadyExistsError { .. })) => {
                 map.read()?;
                 Ok(map)
             }
@@ -87,8 +87,5 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> MapBuilder<S, V> {
 }
 
 fn config_error<E>(error: BuildError) -> Error<E> {
-    Error::Incompatible {
-        expected: "valid structure configuration".to_owned(),
-        observed: error.to_string(),
-    }
+    Error::Configuration(error)
 }

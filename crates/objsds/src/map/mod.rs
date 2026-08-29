@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::{FORMAT_VERSION, validate};
 use crate::lifecycle::replace;
-use crate::{Error, Result};
+use crate::{DocumentError, Error, StoreError};
 
 /// A single-object UTF-8/JSON Map.
 pub struct Map<S, V> {
@@ -22,15 +22,15 @@ pub struct Map<S, V> {
 }
 
 impl<S: ObjectStore, V: Serialize + DeserializeOwned> Map<S, V> {
-    pub fn get(&self, key: &str) -> Result<Option<V>, S::Error> {
+    pub fn get(&self, key: &str) -> Result<Option<V>, Error<S::Error>> {
         Ok(self.read()?.1.entries.remove(key))
     }
 
-    pub fn entries(&self) -> Result<Vec<(String, V)>, S::Error> {
+    pub fn entries(&self) -> Result<Vec<(String, V)>, Error<S::Error>> {
         Ok(self.read()?.1.entries.into_iter().collect())
     }
 
-    pub fn insert(&self, key: impl Into<String>, value: V) -> Result<Version, S::Error> {
+    pub fn insert(&self, key: impl Into<String>, value: V) -> Result<Version, Error<S::Error>> {
         let (version, mut document) = self.read()?;
         document.entries.insert(key.into(), value);
         self.write(&version, &document)
@@ -40,7 +40,7 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> Map<S, V> {
         &self,
         key: impl Into<String>,
         value: V,
-    ) -> Result<InsertIfAbsent<V>, S::Error> {
+    ) -> Result<InsertIfAbsent<V>, Error<S::Error>> {
         let key = key.into();
         let (version, mut document) = self.read()?;
         if let Some(value) = document.entries.remove(&key) {
@@ -51,7 +51,7 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> Map<S, V> {
             .map(InsertIfAbsent::Inserted)
     }
 
-    pub fn remove(&self, key: &str) -> Result<Option<V>, S::Error> {
+    pub fn remove(&self, key: &str) -> Result<Option<V>, Error<S::Error>> {
         let (version, mut document) = self.read()?;
         let removed = document.entries.remove(key);
         if removed.is_some() {
@@ -60,23 +60,26 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> Map<S, V> {
         Ok(removed)
     }
 
-    pub(super) fn empty_bytes(&self) -> Result<Vec<u8>, S::Error> {
+    pub(super) fn empty_bytes(&self) -> Result<Vec<u8>, Error<S::Error>> {
         serde_json::to_vec(&MapDocument::<V> {
             format_version: FORMAT_VERSION,
             kind: "map",
             schema: &self.schema,
             entries: BTreeMap::new(),
         })
-        .map_err(Error::Json)
+        .map_err(DocumentError::Serialize)
+        .map_err(Error::Document)
     }
 
-    pub(super) fn read(&self) -> Result<(Version, OwnedMapDocument<V>), S::Error> {
+    pub(super) fn read(&self) -> Result<(Version, OwnedMapDocument<V>), Error<S::Error>> {
         let object = self
             .store
             .get(&self.location)
-            .map_err(Error::Store)?
+            .map_err(|source| Error::Store(StoreError { source }))?
             .ok_or(Error::NotFound)?;
-        let document: OwnedMapDocument<V> = serde_json::from_slice(&object.bytes)?;
+        let document: OwnedMapDocument<V> = serde_json::from_slice(&object.bytes)
+            .map_err(DocumentError::Deserialize)
+            .map_err(Error::Document)?;
         validate(
             document.format_version,
             &document.kind,
@@ -91,8 +94,10 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> Map<S, V> {
         &self,
         version: &Version,
         document: &OwnedMapDocument<V>,
-    ) -> Result<Version, S::Error> {
-        let bytes = serde_json::to_vec(document)?;
+    ) -> Result<Version, Error<S::Error>> {
+        let bytes = serde_json::to_vec(document)
+            .map_err(DocumentError::Serialize)
+            .map_err(Error::Document)?;
         replace(self.store.as_ref(), &self.location, version, &bytes)
     }
 }

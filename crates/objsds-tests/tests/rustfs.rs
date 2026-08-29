@@ -34,7 +34,7 @@ fn full_rustfs_experience() -> Result<(), Box<dyn std::error::Error>> {
     );
     assert!(matches!(
         client.map::<User>("users").schema("user-v2").open(),
-        Err(Error::Incompatible { .. })
+        Err(Error::Incompatible(_))
     ));
 
     let events = client

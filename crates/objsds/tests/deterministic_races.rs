@@ -137,7 +137,7 @@ fn open_or_create_rejects_an_incompatible_create_race_winner() {
         .schema("user-v1")
         .open_or_create();
 
-    assert!(matches!(result, Err(Error::Incompatible { .. })));
+    assert!(matches!(result, Err(Error::Incompatible(_))));
 }
 
 #[test]
@@ -156,7 +156,13 @@ fn stale_concurrent_write_reports_conflict_and_preserves_the_winner() {
 
     let result = map.insert("stale", 9);
 
-    assert!(matches!(result, Err(Error::Conflict { observed: Some(_) })));
+    assert!(matches!(
+        result,
+        Err(Error::Conflict(objsds::ConflictError {
+            observed: Some(_),
+            ..
+        }))
+    ));
     assert_eq!(
         map.entries().expect("winning state should be readable"),
         [("winner".to_owned(), 7)]

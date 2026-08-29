@@ -8,12 +8,12 @@ use serde::de::DeserializeOwned;
 use super::Log;
 use crate::client::{BuildError, location};
 use crate::lifecycle::create;
-use crate::{Error, Result};
+use crate::{AlreadyExistsError, Error, StoreError};
 
 /// Builder for one append-only JSON Log.
 pub struct LogBuilder<S, V> {
     store: Arc<S>,
-    location: std::result::Result<Location, BuildError>,
+    location: Result<Location, BuildError>,
     schema: Option<String>,
     value: PhantomData<fn() -> V>,
 }
@@ -34,7 +34,7 @@ impl<S, V> LogBuilder<S, V> {
         self
     }
 
-    fn finish(self) -> std::result::Result<Log<S, V>, BuildError> {
+    fn finish(self) -> Result<Log<S, V>, BuildError> {
         let schema = self.schema.ok_or(BuildError::MissingSchema)?;
         if schema.is_empty() {
             return Err(BuildError::MissingSchema);
@@ -49,25 +49,25 @@ impl<S, V> LogBuilder<S, V> {
 }
 
 impl<S: ObjectStore, V: Serialize + DeserializeOwned> LogBuilder<S, V> {
-    pub fn create(self) -> Result<Log<S, V>, S::Error> {
+    pub fn create(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
         let bytes = log.empty_bytes()?;
         create(log.store.as_ref(), &log.location, &bytes)?;
         Ok(log)
     }
 
-    pub fn open(self) -> Result<Log<S, V>, S::Error> {
+    pub fn open(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
         log.read()?;
         Ok(log)
     }
 
-    pub fn open_or_create(self) -> Result<Log<S, V>, S::Error> {
+    pub fn open_or_create(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
         if log
             .store
             .get(&log.location)
-            .map_err(Error::Store)?
+            .map_err(|source| Error::Store(StoreError { source }))?
             .is_some()
         {
             log.read()?;
@@ -77,7 +77,7 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> LogBuilder<S, V> {
         let bytes = log.empty_bytes()?;
         match create(log.store.as_ref(), &log.location, &bytes) {
             Ok(_) => Ok(log),
-            Err(Error::AlreadyExists { .. }) => {
+            Err(Error::AlreadyExists(AlreadyExistsError { .. })) => {
                 log.read()?;
                 Ok(log)
             }
@@ -87,8 +87,5 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> LogBuilder<S, V> {
 }
 
 fn config_error<E>(error: BuildError) -> Error<E> {
-    Error::Incompatible {
-        expected: "valid structure configuration".to_owned(),
-        observed: error.to_string(),
-    }
+    Error::Configuration(error)
 }
