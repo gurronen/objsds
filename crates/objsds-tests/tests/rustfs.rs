@@ -1,6 +1,6 @@
 use objsds::{Error, Objsds};
-use objsds_store::{CreateError, Location, ObjectStore, ReplaceError};
-use objsds_tests::{ensure_rustfs_bucket, rustfs_store, unique_namespace};
+use objsds_store::Location;
+use objsds_tests::{assert_backend_contract, ensure_rustfs_bucket, rustfs_store, unique_namespace};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -46,23 +46,10 @@ fn full_rustfs_experience() -> Result<(), Box<dyn std::error::Error>> {
     assert!(first < second);
     assert_eq!(events.records_after(first)?[0].value, "updated");
 
-    let location = Location::new(format!("{namespace}/contract/cas.json"))?;
-    let initial = store
-        .create(&location, b"one")
-        .expect("contract object creation should succeed");
-    assert!(matches!(
-        store.create(&location, b"duplicate"),
-        Err(CreateError::AlreadyExists { .. })
-    ));
-    let current = store
-        .replace(&location, &initial, b"two")
-        .expect("current contract replacement should succeed");
-    assert!(matches!(
-        store.replace(&location, &initial, b"stale"),
-        Err(ReplaceError::Conflict {
-            observed: Some(observed)
-        }) if observed == current
-    ));
+    assert_backend_contract(
+        &store,
+        Location::new(format!("{namespace}/contract/object.json"))?,
+    );
 
     Ok(())
 }
