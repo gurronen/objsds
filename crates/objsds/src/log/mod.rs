@@ -72,8 +72,23 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> Log<S, V> {
             .get(&self.location)
             .map_err(Error::Store)?
             .ok_or(Error::NotFound)?;
-        validate(&object.bytes, "log", &self.schema)?;
-        let document = serde_json::from_slice(&object.bytes)?;
+        let document: LogDocument<V> = serde_json::from_slice(&object.bytes)?;
+        validate(
+            document.format_version,
+            &document.kind,
+            &document.schema,
+            "log",
+            &self.schema,
+        )?;
+        if document
+            .records
+            .windows(2)
+            .any(|records| records[0].id >= records[1].id)
+        {
+            return Err(Error::InvalidDocument {
+                reason: "log record IDs must be strictly increasing".to_owned(),
+            });
+        }
         Ok((object.version, document))
     }
 

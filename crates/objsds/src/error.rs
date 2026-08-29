@@ -11,6 +11,7 @@ pub enum Error<E> {
     AlreadyExists { observed: Version },
     Conflict { observed: Option<Version> },
     Incompatible { expected: String, observed: String },
+    InvalidDocument { reason: String },
 }
 
 pub type Result<T, E> = std::result::Result<T, Error<E>>;
@@ -29,6 +30,7 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
                     "incompatible data structure: expected {expected}, observed {observed}"
                 )
             }
+            Self::InvalidDocument { reason } => write!(formatter, "invalid document: {reason}"),
         }
     }
 }
