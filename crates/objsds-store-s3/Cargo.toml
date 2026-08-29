@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Blocking S3-compatible object-store adapter for objsds"
+readme = "README.md"
+keywords = ["object-storage", "s3", "aws", "rustfs", "storage"]
+categories = ["api-bindings", "database-implementations"]
 
 [lints]
 workspace = true

@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Minimal blocking object-store capabilities required by objsds"
+readme = "README.md"
+keywords = ["object-storage", "s3", "storage", "cas"]
+categories = ["database-implementations"]
 
 [lints]
 workspace = true
