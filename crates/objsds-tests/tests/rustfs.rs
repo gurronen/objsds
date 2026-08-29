@@ -1,42 +1,11 @@
 use objsds::{Error, Objsds};
 use objsds_store::{CreateError, Location, ObjectStore, ReplaceError};
-use objsds_store_s3::{Credentials, S3Store};
-use objsds_tests::{
-    RUSTFS_ACCESS_KEY, RUSTFS_BUCKET, RUSTFS_ENDPOINT, RUSTFS_SECRET_KEY, ensure_rustfs_bucket,
-    rustfs_enabled, rustfs_store, unique_namespace,
-};
+use objsds_tests::{ensure_rustfs_bucket, rustfs_enabled, rustfs_store, unique_namespace};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct User {
     name: String,
-}
-
-#[test]
-fn simple_rustfs() -> Result<(), Box<dyn std::error::Error>> {
-    if !rustfs_enabled() {
-        eprintln!("skipped: run `mise run test:e2e` to start RustFS through Pitchfork");
-        return Ok(());
-    }
-
-    ensure_rustfs_bucket()?;
-    let store = S3Store::builder()
-        .bucket(RUSTFS_BUCKET)
-        .region("us-east-1")
-        .endpoint(RUSTFS_ENDPOINT)
-        .credentials(Credentials::new(RUSTFS_ACCESS_KEY, RUSTFS_SECRET_KEY))
-        .path_style(true)
-        .build()?;
-
-    let client = Objsds::builder()
-        .store(store.clone())
-        .namespace(&unique_namespace("rustfs-e2e"))
-        .build()?;
-
-    let logitems = client.log::<User>("mylog").schema("mylog-v1").create()?;
-
-    return Ok(());
-    //
 }
 
 #[test]
