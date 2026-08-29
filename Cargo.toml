@@ -13,6 +13,8 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.96"
+repository = "https://github.com/gurronen/objsds"
+homepage = "https://github.com/gurronen/objsds"
 
 [workspace.lints.clippy]
 unwrap_used = "warn"

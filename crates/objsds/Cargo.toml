@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Typed single-object Map and Log data structures for object stores"
+readme = "README.md"
+keywords = ["object-storage", "s3", "distributed", "map", "log"]
+categories = ["data-structures", "database-implementations"]
 
 [lints]
 workspace = true

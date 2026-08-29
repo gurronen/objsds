@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Deterministic in-memory object-store adapter for objsds"
+readme = "README.md"
+keywords = ["object-storage", "storage", "testing", "in-memory"]
+categories = ["development-tools::testing", "database-implementations"]
 
 [lints]
 workspace = true
