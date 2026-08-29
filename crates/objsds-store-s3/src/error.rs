@@ -3,9 +3,13 @@ use std::fmt;
 /// Invalid S3 adapter configuration.
 #[derive(Debug)]
 pub enum BuildError {
+    /// No bucket was configured.
     MissingBucket,
+    /// No signing region was configured.
     MissingRegion,
+    /// The configured region could not be used for signing.
     InvalidRegion,
+    /// The blocking client, credentials, or transport could not be configured.
     Transport(Box<s3_client::Error>),
 }
 
@@ -40,7 +44,9 @@ impl From<s3_client::Error> for BuildError {
 /// An S3 request or response error.
 #[derive(Debug)]
 pub enum StoreError {
+    /// A request, response body, or request configuration failed.
     Transport(Box<s3_client::Error>),
+    /// A successful response omitted the ETag required as a version token.
     MissingEtag,
 }
 

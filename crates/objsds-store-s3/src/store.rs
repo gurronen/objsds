@@ -7,6 +7,10 @@ use s3_client::BlockingClient;
 use crate::{S3Config, S3StoreBuilder, StoreError};
 
 /// Configured blocking S3-compatible object store.
+///
+/// Clones share a blocking HTTP client. Each [`ObjectStore`] call may block on
+/// network I/O and transfers a complete object. Conditional-write failures can
+/// perform an additional `GET` to report the version observed afterward.
 #[derive(Clone)]
 pub struct S3Store {
     pub(crate) config: S3Config,
@@ -14,11 +18,16 @@ pub struct S3Store {
 }
 
 impl S3Store {
+    /// Starts an S3 store builder with no bucket or region.
     #[must_use]
     pub fn builder() -> S3StoreBuilder {
         S3StoreBuilder::default()
     }
 
+    /// Returns the effective configuration, including credential selection.
+    ///
+    /// Secret values remain redacted by [`Credentials`](crate::Credentials)
+    /// debug formatting.
     #[must_use]
     pub fn config(&self) -> &S3Config {
         &self.config

@@ -8,8 +8,11 @@ pub enum Credentials {
     Default,
     /// Use explicitly supplied credentials.
     Static {
+        /// Access-key identifier included in signed requests.
         access_key_id: String,
+        /// Secret signing key. Debug output always redacts this value.
         secret_access_key: String,
+        /// Optional temporary-credential token, also redacted from debug output.
         session_token: Option<String>,
     },
 }
@@ -33,6 +36,7 @@ impl Credentials {
         }
     }
 
+    /// Creates static credentials without a session token.
     #[must_use]
     pub fn new(access_key_id: impl Into<String>, secret_access_key: impl Into<String>) -> Self {
         Self::Static {
@@ -42,6 +46,9 @@ impl Credentials {
         }
     }
 
+    /// Adds a session token to static credentials.
+    ///
+    /// Calling this on [`Credentials::Default`] has no effect.
     #[must_use]
     pub fn with_session_token(mut self, token: impl Into<String>) -> Self {
         if let Self::Static { session_token, .. } = &mut self {

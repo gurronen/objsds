@@ -1,5 +1,6 @@
 use objsds_store::{CreateError, Location, ObjectStore, ReplaceError};
 
+/// Verifies the conditional create and replace contract for one empty location.
 pub fn assert_backend_contract(store: &impl ObjectStore, location: Location) {
     assert!(
         store

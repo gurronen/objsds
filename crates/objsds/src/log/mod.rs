@@ -14,7 +14,11 @@ use crate::document::{FORMAT_VERSION, validate};
 use crate::lifecycle::replace;
 use crate::{DocumentError, Error, StoreError};
 
-/// A single-object append-only JSON Log.
+/// A single-object append-only JSON log.
+///
+/// Each call reads one complete coherent snapshot. Calls do not share a
+/// snapshot and are not transactions. All methods are blocking and O(n) in the
+/// total encoded log size; appends conditionally rewrite the entire object.
 pub struct Log<S, V> {
     pub(super) store: Arc<S>,
     pub(super) location: Location,
@@ -23,6 +27,12 @@ pub struct Log<S, V> {
 }
 
 impl<S: ObjectStore, V: Serialize + DeserializeOwned> Log<S, V> {
+    /// Appends a value and returns its opaque sortable identifier.
+    ///
+    /// Performs one complete read followed by one conditional complete-object
+    /// replacement. Encoding, memory, and transfer costs are O(n). A concurrent
+    /// append returns [`Error::Conflict`] and is not retried; a retry creates a
+    /// new identifier and callers should account for ambiguous store failures.
     pub fn append(&self, value: V) -> Result<LogId, Error<S::Error>> {
         let (version, mut document) = self.read()?;
         let id = LogId::now();
@@ -35,6 +45,10 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> Log<S, V> {
         Ok(id)
     }
 
+    /// Returns a record by identifier from one coherent log snapshot.
+    ///
+    /// Performs one complete object read and O(n) decoding, despite selecting
+    /// only one record.
     pub fn get(&self, id: LogId) -> Result<Option<Record<V>>, Error<S::Error>> {
         let (_, mut document) = self.read()?;
         match document
@@ -46,10 +60,18 @@ impl<S: ObjectStore, V: Serialize + DeserializeOwned> Log<S, V> {
         }
     }
 
+    /// Returns all records from one coherent snapshot in identifier order.
+    ///
+    /// Performs one complete object read and O(n) decoding and allocation.
     pub fn records(&self) -> Result<Vec<Record<V>>, Error<S::Error>> {
         Ok(self.read()?.1.records)
     }
 
+    /// Returns records whose identifiers sort after `id`.
+    ///
+    /// The result is a coherent snapshot, not a cursor over future appends.
+    /// This performs one complete object read and O(n) decoding even when the
+    /// returned suffix is small.
     pub fn records_after(&self, id: LogId) -> Result<Vec<Record<V>>, Error<S::Error>> {
         let (_, document) = self.read()?;
         let index = document.records.partition_point(|record| record.id <= id);

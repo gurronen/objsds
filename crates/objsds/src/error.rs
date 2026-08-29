@@ -15,9 +15,33 @@ pub enum Error<E> {
     Document(DocumentError),
     /// The requested data structure does not exist.
     NotFound,
-    /// Creation raced with an existing object.
+    /// Creation found an existing object at the structure's location.
     AlreadyExists(AlreadyExistsError),
-    /// A conditional replacement used a stale object version.
+    /// A mutation lost a compare-and-swap race.
+    ///
+    /// The operation was not applied and is not retried automatically. Inspect
+    /// the expected and observed versions for diagnostics, but do not treat the
+    /// observation as a safe token for a replacement without reading a fresh
+    /// snapshot.
+    ///
+    /// ```
+    /// use std::convert::Infallible;
+    /// use objsds::{ConflictError, Error, Version};
+    ///
+    /// let error: Error<Infallible> = Error::Conflict(ConflictError {
+    ///     expected: Version::new("etag-read-before-write"),
+    ///     observed: Some(Version::new("etag-after-conflict")),
+    /// });
+    /// match error {
+    ///     Error::Conflict(ConflictError { expected, observed: Some(observed) }) => {
+    ///         eprintln!("expected {expected:?}, observed {observed:?}");
+    ///     }
+    ///     Error::Conflict(ConflictError { expected, observed: None }) => {
+    ///         eprintln!("expected {expected:?}, but the object was absent");
+    ///     }
+    ///     _ => unreachable!(),
+    /// }
+    /// ```
     Conflict(ConflictError),
     /// Persisted metadata is incompatible with the requested structure.
     Incompatible(CompatibilityError),
@@ -26,6 +50,7 @@ pub enum Error<E> {
 /// The object store could not complete an operation.
 #[derive(Debug)]
 pub struct StoreError<E> {
+    /// Backend-specific source error.
     pub source: E,
 }
 
@@ -37,29 +62,55 @@ pub enum DocumentError {
     /// The persisted document is malformed or cannot be decoded as the expected type.
     Deserialize(serde_json::Error),
     /// The decoded document violates a data-structure invariant.
-    Corrupt { reason: String },
+    Corrupt {
+        /// Human-readable description of the violated invariant.
+        reason: String,
+    },
 }
 
 /// Creation found an object already present at the requested location.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AlreadyExistsError {
+    /// Version observed after the failed conditional create.
+    ///
+    /// This is diagnostic and may already be stale.
     pub observed: Version,
 }
 
 /// A conditional replacement did not observe the expected object version.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConflictError {
+    /// Version read from the snapshot that the mutation attempted to replace.
     pub expected: Version,
-    /// `None` means the object was deleted before the replacement.
+    /// Version observed after the failed replacement, or `None` if the object
+    /// was absent. This observation is diagnostic and may already be stale.
     pub observed: Option<Version>,
 }
 
 /// Persisted metadata is incompatible with the requested structure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompatibilityError {
-    FormatVersion { expected: u32, observed: u32 },
-    Kind { expected: String, observed: String },
-    Schema { expected: String, observed: String },
+    /// The stored format version is unsupported.
+    FormatVersion {
+        /// Format version supported by this library.
+        expected: u32,
+        /// Format version found in the stored snapshot.
+        observed: u32,
+    },
+    /// The stored structure kind differs from the requested kind.
+    Kind {
+        /// Requested structure kind.
+        expected: String,
+        /// Structure kind found in the stored snapshot.
+        observed: String,
+    },
+    /// The stored application schema identifier differs from the requested one.
+    Schema {
+        /// Schema identifier configured by the caller.
+        expected: String,
+        /// Schema identifier found in the stored snapshot.
+        observed: String,
+    },
 }
 
 impl<E: fmt::Display> fmt::Display for Error<E> {

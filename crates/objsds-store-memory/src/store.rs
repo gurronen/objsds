@@ -5,6 +5,12 @@ use objsds_store::{CreateError, Location, Object, ObjectStore, ReplaceError, Ver
 
 use crate::state::State;
 
+/// In-process [`ObjectStore`] implementation with monotonically assigned
+/// opaque versions.
+///
+/// Clones share data. Each operation takes one mutex and copies complete object
+/// bytes, so calls may briefly block on other callers and use O(object size)
+/// memory. Dropping all clones discards every object.
 #[derive(Clone, Debug, Default)]
 pub struct MemoryStore {
     inner: Arc<Mutex<State>>,
