@@ -9,6 +9,17 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+rustfs-e2e = []
+
+[[test]]
+name = "rustfs"
+required-features = ["rustfs-e2e"]
+
+[[test]]
+name = "rustfs_perf"
+required-features = ["rustfs-e2e"]
+
 [dependencies]
 objsds.workspace = true
 objsds-store.workspace = true

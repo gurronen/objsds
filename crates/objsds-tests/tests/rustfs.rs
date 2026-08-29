@@ -1,6 +1,6 @@
 use objsds::{Error, Objsds};
 use objsds_store::{CreateError, Location, ObjectStore, ReplaceError};
-use objsds_tests::{ensure_rustfs_bucket, rustfs_enabled, rustfs_store, unique_namespace};
+use objsds_tests::{ensure_rustfs_bucket, rustfs_store, unique_namespace};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -10,11 +10,6 @@ struct User {
 
 #[test]
 fn full_rustfs_experience() -> Result<(), Box<dyn std::error::Error>> {
-    if !rustfs_enabled() {
-        eprintln!("skipped: run `mise run test:e2e` to start RustFS through Pitchfork");
-        return Ok(());
-    }
-
     ensure_rustfs_bucket()?;
     let store = rustfs_store()?;
     let namespace = unique_namespace("rustfs-e2e");
