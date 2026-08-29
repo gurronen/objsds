@@ -6,9 +6,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Log;
+use crate::Error;
 use crate::client::{BuildError, location};
-use crate::lifecycle::create;
-use crate::{AlreadyExistsError, Error, StoreError};
+use crate::lifecycle::{create_structure, open_or_create_structure, open_structure};
 
 /// Builder for one append-only JSON Log.
 pub struct LogBuilder<S, V> {
@@ -51,38 +51,25 @@ impl<S, V> LogBuilder<S, V> {
 impl<S: ObjectStore, V: Serialize + DeserializeOwned> LogBuilder<S, V> {
     pub fn create(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
-        let bytes = log.empty_bytes()?;
-        create(log.store.as_ref(), &log.location, &bytes)?;
+        create_structure(log.store.as_ref(), &log.location, || log.empty_bytes())?;
         Ok(log)
     }
 
     pub fn open(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
-        log.read()?;
+        open_structure::<S, _, _>(|| log.read())?;
         Ok(log)
     }
 
     pub fn open_or_create(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
-        if log
-            .store
-            .get(&log.location)
-            .map_err(|source| Error::Store(StoreError { source }))?
-            .is_some()
-        {
-            log.read()?;
-            return Ok(log);
-        }
-
-        let bytes = log.empty_bytes()?;
-        match create(log.store.as_ref(), &log.location, &bytes) {
-            Ok(_) => Ok(log),
-            Err(Error::AlreadyExists(AlreadyExistsError { .. })) => {
-                log.read()?;
-                Ok(log)
-            }
-            Err(error) => Err(error),
-        }
+        open_or_create_structure(
+            log.store.as_ref(),
+            &log.location,
+            || log.empty_bytes(),
+            || log.read(),
+        )?;
+        Ok(log)
     }
 }
 

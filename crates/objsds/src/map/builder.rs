@@ -6,9 +6,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Map;
+use crate::Error;
 use crate::client::{BuildError, location};
-use crate::lifecycle::create;
-use crate::{AlreadyExistsError, Error, StoreError};
+use crate::lifecycle::{create_structure, open_or_create_structure, open_structure};
 
 /// Builder for one UTF-8/JSON Map.
 pub struct MapBuilder<S, V> {
@@ -51,38 +51,25 @@ impl<S, V> MapBuilder<S, V> {
 impl<S: ObjectStore, V: Serialize + DeserializeOwned> MapBuilder<S, V> {
     pub fn create(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
-        let bytes = map.empty_bytes()?;
-        create(map.store.as_ref(), &map.location, &bytes)?;
+        create_structure(map.store.as_ref(), &map.location, || map.empty_bytes())?;
         Ok(map)
     }
 
     pub fn open(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
-        map.read()?;
+        open_structure::<S, _, _>(|| map.read())?;
         Ok(map)
     }
 
     pub fn open_or_create(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
-        if map
-            .store
-            .get(&map.location)
-            .map_err(|source| Error::Store(StoreError { source }))?
-            .is_some()
-        {
-            map.read()?;
-            return Ok(map);
-        }
-
-        let bytes = map.empty_bytes()?;
-        match create(map.store.as_ref(), &map.location, &bytes) {
-            Ok(_) => Ok(map),
-            Err(Error::AlreadyExists(AlreadyExistsError { .. })) => {
-                map.read()?;
-                Ok(map)
-            }
-            Err(error) => Err(error),
-        }
+        open_or_create_structure(
+            map.store.as_ref(),
+            &map.location,
+            || map.empty_bytes(),
+            || map.read(),
+        )?;
+        Ok(map)
     }
 }
 
