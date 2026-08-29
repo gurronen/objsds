@@ -1,0 +1,18 @@
+[package]
+name = "objsds-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+objsds.workspace = true
+objsds-store.workspace = true
+objsds-store-memory.workspace = true
+objsds-store-s3.workspace = true
+s3-client.workspace = true
+serde.workspace = true
