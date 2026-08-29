@@ -1,5 +1,9 @@
 use std::error::Error;
 
+mod backend_contract;
+
+pub use backend_contract::assert_backend_contract;
+
 use objsds_store_s3::{Credentials, S3Store};
 use s3_client::{AddressingStyle, Auth, BlockingClient, Credentials as S3Credentials};
 
