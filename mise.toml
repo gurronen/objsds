@@ -44,6 +44,10 @@ run = "cargo clippy --all-targets --all-features -- -D warnings"
 description = "Check dependency advisories, licenses, bans, and sources"
 run = "cargo deny check"
 
+[tasks.package]
+description = "Validate publishable crate packages"
+run = "cargo package --workspace --exclude objsds-tests --locked --allow-dirty"
+
 [tasks.ci]
 description = "Run the complete validation suite"
-depends = ["fmt", "lint", "test", "deny"]
+depends = ["fmt", "lint", "test", "deny", "package"]
