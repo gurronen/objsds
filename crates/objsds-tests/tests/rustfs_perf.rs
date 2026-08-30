@@ -9,14 +9,31 @@ use objsds_tests::{ensure_rustfs_bucket, rustfs_enabled, rustfs_store};
 
 const DEFAULT_WORKERS: usize = 8;
 const DEFAULT_OPERATIONS_PER_WORKER: usize = 25;
+const MAX_TRANSIENT_RETRIES: usize = 5;
+const INITIAL_RETRY_DELAY: Duration = Duration::from_millis(10);
 
-type OperationResult = Result<bool, String>;
+#[derive(Debug)]
+struct OperationOutcome {
+    kind: OutcomeKind,
+    transient_responses: usize,
+}
+
+#[derive(Debug)]
+enum OutcomeKind {
+    Success,
+    Conflict,
+    TransientFailure,
+}
+
+type OperationResult = Result<OperationOutcome, String>;
 
 #[derive(Debug)]
 struct Measurements {
     attempts: usize,
     successes: usize,
     conflicts: usize,
+    transient_failures: usize,
+    transient_responses: usize,
     elapsed: Duration,
 }
 
@@ -26,12 +43,17 @@ impl Measurements {
         let attempt_rate = self.attempts as f64 / seconds;
         let success_rate = self.successes as f64 / seconds;
         let conflict_rate = self.conflicts as f64 / seconds;
+        let transient_failure_rate = self.transient_failures as f64 / seconds;
         let conflict_percent = self.conflicts as f64 * 100.0 / self.attempts as f64;
+        let transient_failure_percent =
+            self.transient_failures as f64 * 100.0 / self.attempts as f64;
         println!(
-            "objsds_cas_perf structure={structure} workers={workers} operations_per_worker={operations_per_worker} attempts={} successes={} conflicts={} elapsed_ms={} attempt_ops_per_sec={attempt_rate:.2} success_ops_per_sec={success_rate:.2} conflict_ops_per_sec={conflict_rate:.2} conflict_percent={conflict_percent:.2}",
+            "objsds_cas_perf structure={structure} workers={workers} operations_per_worker={operations_per_worker} attempts={} successes={} conflicts={} transient_failures={} transient_responses={} elapsed_ms={} attempt_ops_per_sec={attempt_rate:.2} success_ops_per_sec={success_rate:.2} conflict_ops_per_sec={conflict_rate:.2} transient_failure_ops_per_sec={transient_failure_rate:.2} conflict_percent={conflict_percent:.2} transient_failure_percent={transient_failure_percent:.2}",
             self.attempts,
             self.successes,
             self.conflicts,
+            self.transient_failures,
+            self.transient_responses,
             self.elapsed.as_millis(),
         );
     }
@@ -70,7 +92,9 @@ fn rustfs_log_and_map_cas_contention() -> Result<(), Box<dyn Error>> {
     let map_measurements = run_contention(workers, operations_per_worker, {
         let map = Arc::clone(&map);
         move |worker, operation| {
-            classify(map.insert(format!("worker-{worker}-operation-{operation}"), operation))
+            classify_with_retries(|| {
+                map.insert(format!("worker-{worker}-operation-{operation}"), operation)
+            })
         }
     })?;
     map_measurements.print("map", workers, operations_per_worker);
@@ -83,7 +107,7 @@ fn rustfs_log_and_map_cas_contention() -> Result<(), Box<dyn Error>> {
     );
     let log_measurements = run_contention(workers, operations_per_worker, {
         let log = Arc::clone(&log);
-        move |_, operation| classify(log.append(operation))
+        move |_, operation| classify_with_retries(|| log.append(operation))
     })?;
     log_measurements.print("log", workers, operations_per_worker);
 
@@ -109,13 +133,23 @@ where
             barrier.wait();
             let mut successes = 0;
             let mut conflicts = 0;
+            let mut transient_failures = 0;
+            let mut transient_responses = 0;
             for index in 0..operations_per_worker {
-                match operation(worker, index)? {
-                    true => successes += 1,
-                    false => conflicts += 1,
+                let outcome = operation(worker, index)?;
+                transient_responses += outcome.transient_responses;
+                match outcome.kind {
+                    OutcomeKind::Success => successes += 1,
+                    OutcomeKind::Conflict => conflicts += 1,
+                    OutcomeKind::TransientFailure => transient_failures += 1,
                 }
             }
-            Ok::<_, String>((successes, conflicts))
+            Ok::<_, String>((
+                successes,
+                conflicts,
+                transient_failures,
+                transient_responses,
+            ))
         }));
     }
 
@@ -123,29 +157,80 @@ where
     barrier.wait();
     let mut successes = 0;
     let mut conflicts = 0;
+    let mut transient_failures = 0;
+    let mut transient_responses = 0;
     for handle in handles {
-        let (worker_successes, worker_conflicts) = handle
+        let (
+            worker_successes,
+            worker_conflicts,
+            worker_transient_failures,
+            worker_transient_responses,
+        ) = handle
             .join()
             .map_err(|_| "contention worker panicked")?
             .map_err(|error| format!("contention worker failed: {error}"))?;
         successes += worker_successes;
         conflicts += worker_conflicts;
+        transient_failures += worker_transient_failures;
+        transient_responses += worker_transient_responses;
     }
 
     Ok(Measurements {
         attempts: workers * operations_per_worker,
         successes,
         conflicts,
+        transient_failures,
+        transient_responses,
         elapsed: started.elapsed(),
     })
 }
 
-fn classify<T>(result: Result<T, ObjsdsError<StoreError>>) -> OperationResult {
-    match result {
-        Ok(_) => Ok(true),
-        Err(ObjsdsError::Conflict(_)) => Ok(false),
-        Err(error) => Err(error.to_string()),
+fn classify_with_retries<T, F>(mut operation: F) -> OperationResult
+where
+    F: FnMut() -> Result<T, ObjsdsError<StoreError>>,
+{
+    let mut transient_responses = 0;
+    let mut delay = INITIAL_RETRY_DELAY;
+    loop {
+        match operation() {
+            Ok(_) => {
+                return Ok(OperationOutcome {
+                    kind: OutcomeKind::Success,
+                    transient_responses,
+                });
+            }
+            Err(ObjsdsError::Conflict(_)) => {
+                return Ok(OperationOutcome {
+                    kind: OutcomeKind::Conflict,
+                    transient_responses,
+                });
+            }
+            Err(error) if is_transient(&error) => {
+                transient_responses += 1;
+                if transient_responses > MAX_TRANSIENT_RETRIES {
+                    return Ok(OperationOutcome {
+                        kind: OutcomeKind::TransientFailure,
+                        transient_responses,
+                    });
+                }
+                thread::sleep(delay);
+                delay *= 2;
+            }
+            Err(error) => return Err(error.to_string()),
+        }
     }
+}
+
+fn is_transient(error: &ObjsdsError<StoreError>) -> bool {
+    let ObjsdsError::Store(error) = error else {
+        return false;
+    };
+    let StoreError::Transport(error) = &error.source else {
+        return false;
+    };
+    error
+        .status()
+        .is_some_and(|status| matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504))
 }
 
 fn positive_env(name: &str, default: usize) -> Result<usize, Box<dyn Error>> {
