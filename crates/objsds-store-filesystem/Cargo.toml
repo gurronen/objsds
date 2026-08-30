@@ -15,5 +15,6 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+fs4.workspace = true
 objsds-store.workspace = true
 uuid.workspace = true
