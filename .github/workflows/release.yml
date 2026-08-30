@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version already committed in Cargo.toml (without v)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crates-io-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require current main branch
+        env:
+          EXPECTED_REF: refs/heads/main
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "$EXPECTED_REF" ]]; then
+            echo "release workflows must run from ${EXPECTED_REF}, not ${GITHUB_REF}" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+            echo "the selected commit is not the current origin/main" >&2
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "release checkout is dirty" >&2
+            git status --short >&2
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Validate release is new
+        run: python3 scripts/release.py validate --version "${{ inputs.version }}"
+
+      - name: Validate workspace
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo test --workspace --all-targets
+          cargo package --workspace --exclude objsds-tests --locked
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: python3 scripts/release.py publish --version "${{ inputs.version }}"
+
+      - name: Tag release
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          git tag --annotate "$tag" --message "Release ${VERSION}"
+          git push origin "$tag"

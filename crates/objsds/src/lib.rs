@@ -71,3 +71,6 @@ pub use error::{
 pub use log::{Log, LogBuilder, LogId, Record};
 pub use map::{InsertIfAbsent, Map, MapBuilder};
 pub use objsds_store::Version;
+/// S3-compatible storage support, enabled by default.
+#[cfg(feature = "s3")]
+pub use objsds_store_s3 as s3;
