@@ -2,6 +2,7 @@
 hk = "latest"
 pkl = "latest"
 pitchfork = "latest"
+node = "22"
 rust = "stable"
 typos = "latest"
 "cargo:cargo-deny" = "latest"
@@ -21,8 +22,17 @@ description = "Run project checks through hk"
 run = "hk run check"
 
 [tasks.test]
+description = "Run Rust and TypeScript tests"
+depends = ["test:rust", "test:typescript"]
+
+[tasks."test:rust"]
 description = "Run Rust tests"
 run = "cargo test --all-targets"
+
+[tasks."test:typescript"]
+description = "Install, typecheck, and test the TypeScript bindings"
+dir = "crates/objsds-napi/npm"
+run = "npm ci && npm run check && npm test"
 
 [tasks."test:e2e"]
 description = "Start RustFS with Pitchfork and run the S3 end-to-end test"
