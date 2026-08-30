@@ -8,6 +8,8 @@
 
 mod error;
 #[allow(dead_code)]
+mod format;
+#[allow(dead_code)]
 mod path;
 mod store;
 

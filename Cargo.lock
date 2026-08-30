@@ -748,6 +748,7 @@ name = "objsds-store-filesystem"
 version = "0.1.0"
 dependencies = [
  "objsds-store",
+ "uuid",
 ]
 
 [[package]]

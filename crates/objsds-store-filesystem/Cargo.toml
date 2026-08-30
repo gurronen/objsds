@@ -16,3 +16,4 @@ workspace = true
 
 [dependencies]
 objsds-store.workspace = true
+uuid.workspace = true
