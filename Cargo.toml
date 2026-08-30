@@ -3,6 +3,7 @@ members = [
     "crates/objsds",
     "crates/objsds-store",
     "crates/objsds-store-memory",
+    "crates/objsds-store-filesystem",
     "crates/objsds-store-s3",
     "crates/objsds-tests",
 ]
@@ -27,6 +28,7 @@ unwrap_used = "warn"
 objsds = { version = "0.1.0", path = "crates/objsds" }
 objsds-store = { version = "0.1.0", path = "crates/objsds-store" }
 objsds-store-memory = { version = "0.1.0", path = "crates/objsds-store-memory" }
+objsds-store-filesystem = { version = "0.1.0", path = "crates/objsds-store-filesystem" }
 objsds-store-s3 = { version = "0.1.0", path = "crates/objsds-store-s3" }
 s3-client = { package = "s3", version = "0.1.36", default-features = false, features = ["blocking", "rustls"] }
 serde = { version = "1.0.219", features = ["derive"] }

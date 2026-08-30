@@ -744,6 +744,13 @@ name = "objsds-store"
 version = "0.1.0"
 
 [[package]]
+name = "objsds-store-filesystem"
+version = "0.1.0"
+dependencies = [
+ "objsds-store",
+]
+
+[[package]]
 name = "objsds-store-memory"
 version = "0.1.0"
 dependencies = [
