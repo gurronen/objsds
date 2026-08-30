@@ -7,6 +7,8 @@
 #![deny(missing_docs)]
 
 mod error;
+#[allow(dead_code)]
+mod path;
 mod store;
 
 pub use error::{BuildError, StoreError};
