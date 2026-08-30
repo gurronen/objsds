@@ -6,14 +6,14 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Log;
+use crate::Error;
 use crate::client::{BuildError, location};
-use crate::lifecycle::create;
-use crate::{Error, Result};
+use crate::lifecycle::{create_structure, open_or_create_structure, open_structure};
 
 /// Builder for one append-only JSON Log.
 pub struct LogBuilder<S, V> {
     store: Arc<S>,
-    location: std::result::Result<Location, BuildError>,
+    location: Result<Location, BuildError>,
     schema: Option<String>,
     value: PhantomData<fn() -> V>,
 }
@@ -28,13 +28,17 @@ impl<S, V> LogBuilder<S, V> {
         }
     }
 
+    /// Sets the stable application-defined schema identifier.
+    ///
+    /// Opening fails if stored metadata has a different identifier. Use an
+    /// explicit versioned value rather than a Rust type name.
     #[must_use]
     pub fn schema(mut self, schema: impl Into<String>) -> Self {
         self.schema = Some(schema.into());
         self
     }
 
-    fn finish(self) -> std::result::Result<Log<S, V>, BuildError> {
+    fn finish(self) -> Result<Log<S, V>, BuildError> {
         let schema = self.schema.ok_or(BuildError::MissingSchema)?;
         if schema.is_empty() {
             return Err(BuildError::MissingSchema);
@@ -49,46 +53,41 @@ impl<S, V> LogBuilder<S, V> {
 }
 
 impl<S: ObjectStore, V: Serialize + DeserializeOwned> LogBuilder<S, V> {
-    pub fn create(self) -> Result<Log<S, V>, S::Error> {
+    /// Conditionally creates an empty log.
+    ///
+    /// Performs one conditional object-store create and returns
+    /// [`Error::AlreadyExists`] if the location is occupied.
+    pub fn create(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
-        let bytes = log.empty_bytes()?;
-        create(log.store.as_ref(), &log.location, &bytes)?;
+        create_structure(log.store.as_ref(), &log.location, || log.empty_bytes())?;
         Ok(log)
     }
 
-    pub fn open(self) -> Result<Log<S, V>, S::Error> {
+    /// Opens and validates an existing log snapshot.
+    ///
+    /// Performs one complete object-store read and O(n) JSON decoding.
+    pub fn open(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
-        log.read()?;
+        open_structure::<S, _, _>(|| log.read())?;
         Ok(log)
     }
 
-    pub fn open_or_create(self) -> Result<Log<S, V>, S::Error> {
+    /// Opens a valid log or atomically creates it when absent.
+    ///
+    /// Performs one read when present. When absent it performs a read and a
+    /// conditional create; if another creator wins, it performs another read.
+    pub fn open_or_create(self) -> Result<Log<S, V>, Error<S::Error>> {
         let log = self.finish().map_err(config_error)?;
-        if log
-            .store
-            .get(&log.location)
-            .map_err(Error::Store)?
-            .is_some()
-        {
-            log.read()?;
-            return Ok(log);
-        }
-
-        let bytes = log.empty_bytes()?;
-        match create(log.store.as_ref(), &log.location, &bytes) {
-            Ok(_) => Ok(log),
-            Err(Error::AlreadyExists { .. }) => {
-                log.read()?;
-                Ok(log)
-            }
-            Err(error) => Err(error),
-        }
+        open_or_create_structure(
+            log.store.as_ref(),
+            &log.location,
+            || log.empty_bytes(),
+            || log.read(),
+        )?;
+        Ok(log)
     }
 }
 
 fn config_error<E>(error: BuildError) -> Error<E> {
-    Error::Incompatible {
-        expected: "valid structure configuration".to_owned(),
-        observed: error.to_string(),
-    }
+    Error::Configuration(error)
 }

@@ -143,7 +143,7 @@ where
 fn classify<T>(result: Result<T, ObjsdsError<StoreError>>) -> OperationResult {
     match result {
         Ok(_) => Ok(true),
-        Err(ObjsdsError::Conflict { .. }) => Ok(false),
+        Err(ObjsdsError::Conflict(_)) => Ok(false),
         Err(error) => Err(error.to_string()),
     }
 }

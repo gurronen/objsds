@@ -3,8 +3,12 @@
 
 [advisories]
 version = 2
-# s3 0.1.36 limits object-operation error bodies to 256 KiB and does not use
-# quick_xml::NsReader. Keep these explicit until s3 upgrades to quick-xml 0.41.
+# Tracking advisory: https://rustsec.org/advisories/RUSTSEC-2026-0194.html
+# s3 0.1.36 limits object-operation error bodies to 256 KiB. Remove this
+# exception when s3 upgrades to quick-xml 0.41 or later.
+# Tracking advisory: https://rustsec.org/advisories/RUSTSEC-2026-0195.html
+# s3 0.1.36 does not use quick_xml::NsReader. Remove this exception when s3
+# upgrades to quick-xml 0.41 or later.
 ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]
 
 [bans]

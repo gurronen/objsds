@@ -12,6 +12,12 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Object-backed data structures with pluggable storage adapters"
+repository = "https://github.com/gurronen/objsds"
+homepage = "https://github.com/gurronen/objsds"
+documentation = "https://docs.rs/objsds"
+keywords = ["object-storage", "data-structures", "s3", "storage"]
+categories = ["data-structures", "database", "filesystem"]
 rust-version = "1.96"
 
 [workspace.lints.clippy]

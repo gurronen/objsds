@@ -1,35 +1,31 @@
-use serde::Deserialize;
-
-use crate::Error;
+use crate::{CompatibilityError, Error};
 
 pub(crate) const FORMAT_VERSION: u32 = 1;
 
-#[derive(Deserialize)]
-struct Metadata {
+pub(crate) fn validate<E>(
     format_version: u32,
-    kind: String,
-    schema: String,
-}
-
-pub(crate) fn validate<E>(bytes: &[u8], kind: &str, schema: &str) -> Result<(), Error<E>> {
-    let metadata: Metadata = serde_json::from_slice(bytes)?;
-    if metadata.format_version != FORMAT_VERSION {
-        return Err(Error::Incompatible {
-            expected: format!("format version {FORMAT_VERSION}"),
-            observed: format!("format version {}", metadata.format_version),
-        });
+    observed_kind: &str,
+    observed_schema: &str,
+    expected_kind: &str,
+    expected_schema: &str,
+) -> Result<(), Error<E>> {
+    if format_version != FORMAT_VERSION {
+        return Err(Error::Incompatible(CompatibilityError::FormatVersion {
+            expected: FORMAT_VERSION,
+            observed: format_version,
+        }));
     }
-    if metadata.kind != kind {
-        return Err(Error::Incompatible {
-            expected: kind.to_owned(),
-            observed: metadata.kind,
-        });
+    if observed_kind != expected_kind {
+        return Err(Error::Incompatible(CompatibilityError::Kind {
+            expected: expected_kind.to_owned(),
+            observed: observed_kind.to_owned(),
+        }));
     }
-    if metadata.schema != schema {
-        return Err(Error::Incompatible {
-            expected: format!("schema {schema}"),
-            observed: format!("schema {}", metadata.schema),
-        });
+    if observed_schema != expected_schema {
+        return Err(Error::Incompatible(CompatibilityError::Schema {
+            expected: expected_schema.to_owned(),
+            observed: observed_schema.to_owned(),
+        }));
     }
     Ok(())
 }

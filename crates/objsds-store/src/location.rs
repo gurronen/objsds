@@ -5,7 +5,10 @@ use std::fmt;
 pub struct Location(String);
 
 impl Location {
-    /// Creates a relative, non-empty object location.
+    /// Creates a relative, non-empty, normalized object location.
+    ///
+    /// Rejects leading slashes and repeated separators. Other provider-specific
+    /// restrictions remain the responsibility of the adapter.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidLocation> {
         let value = value.into();
         if value.is_empty() || value.starts_with('/') || value.contains("//") {
@@ -14,6 +17,7 @@ impl Location {
         Ok(Self(value))
     }
 
+    /// Returns the provider-independent relative location.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0

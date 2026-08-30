@@ -15,36 +15,45 @@ pub struct S3StoreBuilder {
 }
 
 impl S3StoreBuilder {
+    /// Sets the bucket containing all objects accessed by this store.
     #[must_use]
     pub fn bucket(mut self, bucket: impl Into<String>) -> Self {
         self.bucket = Some(bucket.into());
         self
     }
 
+    /// Sets the signing region (for example, `us-east-1`).
     #[must_use]
     pub fn region(mut self, region: impl Into<String>) -> Self {
         self.region = Some(region.into());
         self
     }
 
+    /// Overrides the service endpoint for S3-compatible providers.
     #[must_use]
     pub fn endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = Some(endpoint.into());
         self
     }
 
+    /// Selects the credentials used to sign requests.
     #[must_use]
     pub fn credentials(mut self, credentials: Credentials) -> Self {
         self.credentials = credentials;
         self
     }
 
+    /// Enables path-style bucket addressing when `true`.
     #[must_use]
     pub fn path_style(mut self, path_style: bool) -> Self {
         self.path_style = path_style;
         self
     }
 
+    /// Validates configuration and constructs the blocking client.
+    ///
+    /// Resolving default credentials may read the process environment or other
+    /// provider-chain sources. This does not send an object-store request.
     pub fn build(self) -> Result<S3Store, BuildError> {
         let config = S3Config {
             bucket: self.bucket.ok_or(BuildError::MissingBucket)?,

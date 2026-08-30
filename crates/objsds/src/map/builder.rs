@@ -6,14 +6,14 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Map;
+use crate::Error;
 use crate::client::{BuildError, location};
-use crate::lifecycle::create;
-use crate::{Error, Result};
+use crate::lifecycle::{create_structure, open_or_create_structure, open_structure};
 
 /// Builder for one UTF-8/JSON Map.
 pub struct MapBuilder<S, V> {
     store: Arc<S>,
-    location: std::result::Result<Location, BuildError>,
+    location: Result<Location, BuildError>,
     schema: Option<String>,
     value: PhantomData<fn() -> V>,
 }
@@ -28,13 +28,17 @@ impl<S, V> MapBuilder<S, V> {
         }
     }
 
+    /// Sets the stable application-defined schema identifier.
+    ///
+    /// Opening fails if stored metadata has a different identifier. Use an
+    /// explicit versioned value rather than a Rust type name.
     #[must_use]
     pub fn schema(mut self, schema: impl Into<String>) -> Self {
         self.schema = Some(schema.into());
         self
     }
 
-    fn finish(self) -> std::result::Result<Map<S, V>, BuildError> {
+    fn finish(self) -> Result<Map<S, V>, BuildError> {
         let schema = self.schema.ok_or(BuildError::MissingSchema)?;
         if schema.is_empty() {
             return Err(BuildError::MissingSchema);
@@ -49,46 +53,41 @@ impl<S, V> MapBuilder<S, V> {
 }
 
 impl<S: ObjectStore, V: Serialize + DeserializeOwned> MapBuilder<S, V> {
-    pub fn create(self) -> Result<Map<S, V>, S::Error> {
+    /// Conditionally creates an empty map.
+    ///
+    /// Performs one conditional object-store create and returns
+    /// [`Error::AlreadyExists`] if the location is occupied.
+    pub fn create(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
-        let bytes = map.empty_bytes()?;
-        create(map.store.as_ref(), &map.location, &bytes)?;
+        create_structure(map.store.as_ref(), &map.location, || map.empty_bytes())?;
         Ok(map)
     }
 
-    pub fn open(self) -> Result<Map<S, V>, S::Error> {
+    /// Opens and validates an existing map snapshot.
+    ///
+    /// Performs one complete object-store read and O(n) JSON decoding.
+    pub fn open(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
-        map.read()?;
+        open_structure::<S, _, _>(|| map.read())?;
         Ok(map)
     }
 
-    pub fn open_or_create(self) -> Result<Map<S, V>, S::Error> {
+    /// Opens a valid map or atomically creates it when absent.
+    ///
+    /// Performs one read when present. When absent it performs a read and a
+    /// conditional create; if another creator wins, it performs another read.
+    pub fn open_or_create(self) -> Result<Map<S, V>, Error<S::Error>> {
         let map = self.finish().map_err(config_error)?;
-        if map
-            .store
-            .get(&map.location)
-            .map_err(Error::Store)?
-            .is_some()
-        {
-            map.read()?;
-            return Ok(map);
-        }
-
-        let bytes = map.empty_bytes()?;
-        match create(map.store.as_ref(), &map.location, &bytes) {
-            Ok(_) => Ok(map),
-            Err(Error::AlreadyExists { .. }) => {
-                map.read()?;
-                Ok(map)
-            }
-            Err(error) => Err(error),
-        }
+        open_or_create_structure(
+            map.store.as_ref(),
+            &map.location,
+            || map.empty_bytes(),
+            || map.read(),
+        )?;
+        Ok(map)
     }
 }
 
 fn config_error<E>(error: BuildError) -> Error<E> {
-    Error::Incompatible {
-        expected: "valid structure configuration".to_owned(),
-        observed: error.to_string(),
-    }
+    Error::Configuration(error)
 }

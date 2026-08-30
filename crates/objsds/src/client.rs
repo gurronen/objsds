@@ -6,6 +6,9 @@ use objsds_store::ObjectStore;
 use crate::{LogBuilder, MapBuilder};
 
 /// Client sharing one object store and namespace.
+///
+/// Clones share the same store and create handles for independent single-object
+/// structures. Constructing or cloning a client performs no object-store I/O.
 #[derive(Debug)]
 pub struct Objsds<S> {
     pub(crate) store: Arc<S>,
@@ -13,6 +16,7 @@ pub struct Objsds<S> {
 }
 
 impl Objsds<()> {
+    /// Starts a client builder with no store or namespace.
     #[must_use]
     pub fn builder() -> ObjsdsBuilder<()> {
         ObjsdsBuilder::default()
@@ -29,11 +33,17 @@ impl<S> Clone for Objsds<S> {
 }
 
 impl<S: ObjectStore> Objsds<S> {
+    /// Starts a builder for the named map.
+    ///
+    /// This performs no I/O; lifecycle methods on the returned builder do.
     #[must_use]
     pub fn map<V>(&self, name: impl Into<String>) -> MapBuilder<S, V> {
         MapBuilder::new(Arc::clone(&self.store), &self.namespace, name.into())
     }
 
+    /// Starts a builder for the named log.
+    ///
+    /// This performs no I/O; lifecycle methods on the returned builder do.
     #[must_use]
     pub fn log<V>(&self, name: impl Into<String>) -> LogBuilder<S, V> {
         LogBuilder::new(Arc::clone(&self.store), &self.namespace, name.into())
@@ -57,6 +67,7 @@ impl Default for ObjsdsBuilder<()> {
 }
 
 impl<S> ObjsdsBuilder<S> {
+    /// Selects the blocking object-store implementation shared by handles.
     #[must_use]
     pub fn store<T>(self, store: T) -> ObjsdsBuilder<T> {
         ObjsdsBuilder {
@@ -65,12 +76,14 @@ impl<S> ObjsdsBuilder<S> {
         }
     }
 
+    /// Sets the single path segment that prefixes every structure location.
     #[must_use]
     pub fn namespace(mut self, namespace: impl Into<String>) -> Self {
         self.namespace = Some(namespace.into());
         self
     }
 
+    /// Validates configuration and constructs a client without performing I/O.
     pub fn build(self) -> Result<Objsds<S>, BuildError> {
         let namespace = self.namespace.ok_or(BuildError::MissingNamespace)?;
         validate_segment(&namespace).map_err(|()| BuildError::InvalidNamespace)?;
@@ -102,10 +115,15 @@ fn validate_segment(value: &str) -> Result<(), ()> {
 /// Invalid client or structure configuration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildError {
+    /// No object store was supplied to the client builder.
     MissingStore,
+    /// No namespace was supplied to the client builder.
     MissingNamespace,
+    /// The namespace is not one non-empty path segment.
     InvalidNamespace,
+    /// No non-empty persistent schema identifier was supplied.
     MissingSchema,
+    /// A structure name is not one non-empty path segment.
     InvalidName,
 }
 
