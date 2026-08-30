@@ -764,6 +764,7 @@ name = "objsds"
 version = "0.1.0"
 dependencies = [
  "objsds-store",
+ "objsds-store-filesystem",
  "objsds-store-memory",
  "objsds-store-s3",
  "serde",

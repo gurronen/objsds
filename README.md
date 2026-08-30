@@ -102,6 +102,7 @@ A storage adapter may have additional internal requirements.
 - `objsds`: `Map`, `Log`, lifecycle APIs, JSON documents, and public errors
 - `objsds-store`: the minimal blocking object-store capability interface
 - `objsds-store-memory`: deterministic in-memory reference/test adapter
+- `objsds-store-filesystem`: persistent blocking local-filesystem adapter
 - `objsds-store-s3`: blocking S3-compatible adapter
 - `objsds-tests`: unpublished backend-contract and end-to-end test suite
 
@@ -127,6 +128,22 @@ addressing.
 The official AWS SDK for Rust is async-first. The S3 adapter therefore uses the
 blocking API from the lean `s3` client crate and exposes only the three
 capabilities required by the core protocol.
+
+### Filesystem adapter
+
+The filesystem adapter maps object locations beneath one configured root. It
+uses a per-location advisory lock, an embedded fresh opaque revision, synced
+temporary files, and atomic rename to provide the same coherent-read,
+create-if-absent, and compare-and-swap promises as other adapters. Lock and
+temporary files are physical adapter metadata; each data structure remains one
+logical object.
+
+Correctness requires every access to managed files to use the adapter. External
+modification is unsupported. The adapter is intended for local filesystems with
+reliable advisory locks, atomic same-directory rename, and file and directory
+sync. Network or distributed filesystems are unsupported unless they provide
+those semantics. Host filesystem and hardware behavior ultimately bound crash
+durability.
 
 ## Testing
 
@@ -173,7 +190,8 @@ The test is ignored by default, so normal test runs remain fast and do not
 require RustFS. Use the same worker and operation counts when comparing runs;
 results depend on the machine and object-store environment.
 
-Runnable examples live under `crates/objsds/examples`.
+Runnable examples live under `crates/objsds/examples`. Run the persistent local
+example with `cargo run -p objsds --example filesystem`.
 
 ## Non-goals
 

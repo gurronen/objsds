@@ -26,4 +26,5 @@ serde_json.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+objsds-store-filesystem.workspace = true
 objsds-store-memory.workspace = true
