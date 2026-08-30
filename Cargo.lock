@@ -919,6 +919,7 @@ dependencies = [
  "napi-derive",
  "objsds",
  "objsds-store",
+ "objsds-store-filesystem",
  "objsds-store-memory",
  "objsds-store-s3",
  "serde",

@@ -37,7 +37,10 @@ console.log(await users.get("alice"));
 ```
 
 `Objsds.memory()` creates an in-process store for tests and local use. Handles
-created by one memory client share its store.
+created by one memory client share its store. `Objsds.filesystem({ namespace,
+root })` persists structures beneath a local directory and can be opened by
+multiple clients or processes using the adapter's locking and atomic-replacement
+semantics.
 
 ## Semantics
 

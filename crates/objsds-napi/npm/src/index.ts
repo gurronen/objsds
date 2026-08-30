@@ -47,6 +47,11 @@ export interface MemoryClientOptions {
   namespace: string;
 }
 
+export interface FilesystemClientOptions {
+  namespace: string;
+  root: string;
+}
+
 export interface StaticCredentials {
   accessKeyId: string;
   secretAccessKey: string;
@@ -85,6 +90,7 @@ interface NativeClient {
 }
 
 interface NativeBinding {
+  filesystemClient(namespace: string, root: string): NativeClient;
   memoryClient(namespace: string): NativeClient;
   s3Client(
     namespace: string,
@@ -111,6 +117,14 @@ export class Objsds {
   static memory(options: MemoryClientOptions): Objsds {
     requireNonEmpty(options.namespace, "namespace");
     return new Objsds(callNative(() => native.memoryClient(options.namespace)));
+  }
+
+  static filesystem(options: FilesystemClientOptions): Objsds {
+    requireNonEmpty(options.namespace, "namespace");
+    requireNonEmpty(options.root, "filesystem root");
+    return new Objsds(
+      callNative(() => native.filesystemClient(options.namespace, options.root)),
+    );
   }
 
   static s3(options: S3ClientOptions): Objsds {

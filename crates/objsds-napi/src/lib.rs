@@ -15,11 +15,13 @@ use napi_derive::napi;
 use objsds::s3::{Credentials, S3Store};
 use objsds::{Error, InsertIfAbsent, Log, Map, Objsds};
 use objsds_store::ObjectStore;
+use objsds_store_filesystem::FilesystemStore;
 use objsds_store_memory::MemoryStore;
 use serde_json::{Value, json};
 
 #[derive(Clone)]
 enum Client {
+    Filesystem(Objsds<FilesystemStore>),
     Memory(Objsds<MemoryStore>),
     S3(Objsds<S3Store>),
 }
@@ -136,6 +138,23 @@ pub fn memory_client(namespace: String) -> NapiResult<NativeClient> {
         .map_err(configuration_error)?;
     Ok(NativeClient {
         state: Arc::new(State::new(Client::Memory(client))),
+    })
+}
+
+/// Constructs a filesystem-backed native client.
+#[napi]
+pub fn filesystem_client(namespace: String, root: String) -> NapiResult<NativeClient> {
+    let store = FilesystemStore::builder()
+        .root(root)
+        .build()
+        .map_err(configuration_error)?;
+    let client = Objsds::builder()
+        .store(store)
+        .namespace(namespace)
+        .build()
+        .map_err(configuration_error)?;
+    Ok(NativeClient {
+        state: Arc::new(State::new(Client::Filesystem(client))),
     })
 }
 
@@ -419,6 +438,7 @@ fn execute(state: &State, operation: Operation) -> NapiResult<String> {
         } => {
             let handle = state.handle();
             let map: StoredMap = match &state.client {
+                Client::Filesystem(client) => Arc::new(open_map(client, lifecycle, name, schema)?),
                 Client::Memory(client) => Arc::new(open_map(client, lifecycle, name, schema)?),
                 Client::S3(client) => Arc::new(open_map(client, lifecycle, name, schema)?),
             };
@@ -445,6 +465,7 @@ fn execute(state: &State, operation: Operation) -> NapiResult<String> {
         } => {
             let handle = state.handle();
             let log: StoredLog = match &state.client {
+                Client::Filesystem(client) => Arc::new(open_log(client, lifecycle, name, schema)?),
                 Client::Memory(client) => Arc::new(open_log(client, lifecycle, name, schema)?),
                 Client::S3(client) => Arc::new(open_log(client, lifecycle, name, schema)?),
             };

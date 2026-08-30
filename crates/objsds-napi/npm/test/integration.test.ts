@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { Objsds, ObjsdsError } from "../src/index.js";
@@ -38,6 +41,21 @@ test("shares a memory store between handles from one client", async () => {
 
   await first.insert("total", 3);
   assert.equal(await second.get("total"), 3);
+});
+
+test("persists filesystem structures across clients", async () => {
+  const root = await mkdtemp(join(tmpdir(), "objsds-node-"));
+  try {
+    const firstClient = Objsds.filesystem({ namespace: "persistent", root });
+    const first = await firstClient.map<number>("counts", { schema: "count-v1" }).create();
+    await first.insert("total", 7);
+
+    const secondClient = Objsds.filesystem({ namespace: "persistent", root });
+    const second = await secondClient.map<number>("counts", { schema: "count-v1" }).open();
+    assert.equal(await second.get("total"), 7);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("appends and traverses a typed log", async () => {

@@ -217,8 +217,8 @@ example with `cargo run -p objsds --example filesystem`.
 ## TypeScript
 
 The isolated [`@objsds/client`](crates/objsds-napi/npm) package provides typed
-Map and Log APIs for Node.js 22 or newer. It supports both the S3-compatible and
-in-memory stores, preserves explicit conflict behavior, and runs every blocking
+Map and Log APIs for Node.js 22 or newer. It supports the filesystem,
+S3-compatible, and in-memory stores, preserves explicit conflict behavior, and runs every blocking
 Rust operation away from the JavaScript event-loop thread.
 
 Develop and test the bindings with:
