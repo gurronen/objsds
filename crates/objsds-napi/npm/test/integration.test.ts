@@ -58,6 +58,28 @@ test("persists filesystem structures across clients", async () => {
   }
 });
 
+test("explicitly releases native Map and Log handles", async () => {
+  const client = Objsds.memory({ namespace: "cleanup" });
+  const map = await client.map<number>("counts", { schema: "count-v1" }).create();
+  const log = await client.log<number>("events", { schema: "event-v1" }).create();
+
+  map.close();
+  map.close();
+  log.close();
+  log.close();
+
+  await assert.rejects(map.get("total"), (error: unknown) => {
+    assert.ok(error instanceof ObjsdsError);
+    assert.equal(error.code, "ERR_OBJSDS_INVALID_HANDLE");
+    return true;
+  });
+  await assert.rejects(log.records(), (error: unknown) => {
+    assert.ok(error instanceof ObjsdsError);
+    assert.equal(error.code, "ERR_OBJSDS_INVALID_HANDLE");
+    return true;
+  });
+});
+
 test("appends and traverses a typed log", async () => {
   const client = Objsds.memory({ namespace: "logs" });
   const log = await client.log<User>("audit", { schema: "audit-v1" }).openOrCreate();
