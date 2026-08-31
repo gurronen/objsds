@@ -47,6 +47,68 @@ jobs:
       - run: npm run test:package
       - run: npm pack --dry-run
 
+  typescript-s3:
+    runs-on: ubuntu-latest
+    services:
+      rustfs:
+        image: rustfs/rustfs:latest
+        env:
+          RUSTFS_ACCESS_KEY: rustfsadmin
+          RUSTFS_SECRET_KEY: rustfsadmin
+        ports:
+          - 9000:9000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/objsds-napi/npm/package-lock.json
+      - run: npm ci
+        working-directory: crates/objsds-napi/npm
+      - name: Create the RustFS test bucket
+        run: cargo test -p objsds-tests --features rustfs-e2e --test rustfs -- --nocapture
+        env:
+          OBJSDS_RUSTFS_E2E: "1"
+      - run: npm run test:s3
+        working-directory: crates/objsds-napi/npm
+        env:
+          OBJSDS_RUSTFS_E2E: "1"
+
+  native-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/objsds-napi/npm/package-lock.json
+      - run: npm ci
+        working-directory: crates/objsds-napi/npm
+      - run: npm run build:native -- --target ${{ matrix.target }}
+        working-directory: crates/objsds-napi/npm
+
   msrv:
     runs-on: ubuntu-latest
     steps:

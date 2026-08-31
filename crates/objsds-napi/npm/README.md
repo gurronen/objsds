@@ -56,8 +56,28 @@ Expected failures reject with `ObjsdsError`. Its `code` and `details` fields are
 stable for programmatic handling. In particular, `ERR_OBJSDS_CONFLICT` carries
 `expectedVersion` and `observedVersion` details.
 
+## Native execution model
+
+Every persistent call uses napi-rs `AsyncTask`. The blocking Rust operation runs
+in libuv's shared native worker pool and resolves a JavaScript Promise when it
+finishes, so `await map.get(...)` does not run storage I/O on the event-loop
+thread. This is deliberately lighter than creating a JavaScript
+[`Worker`](https://nodejs.org/api/worker_threads.html), but high-concurrency
+applications should still bound outstanding calls because the libuv pool is
+shared with other Node facilities. See the [native crate design](https://github.com/gurronen/objsds/blob/main/crates/objsds-napi/README.md#why-asynctask)
+for alternatives and links.
+
 ## Native development builds
 
 Set `OBJSDS_NATIVE_BINARY` to an explicit `.node` file to test a custom build.
 The override is strict and never falls back silently. Normal installations load
 the binary bundled with the package or the matching optional platform package.
+Use `npm run build:native -- --target <rust-triple>` for an explicit target; the
+build entry point validates the eight supported Windows, macOS, Linux glibc, and
+Linux musl x64/arm64 targets.
+
+Run the real S3 binding journey locally with Docker available:
+
+```console
+mise run test:typescript:s3
+```

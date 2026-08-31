@@ -27,10 +27,11 @@
   },
   "scripts": {
     "build": "npm run build:native && tsup",
-    "build:native": "napi build --manifest-path ../Cargo.toml --package objsds-napi --platform --release --output-dir . --no-js --dts native.d.ts",
+    "build:native": "node scripts/build-native.mjs",
     "check": "tsc --noEmit",
     "pretest": "npm run build:native",
     "test": "node --import tsx --test test/*.test.ts",
+    "test:s3": "node --import tsx --test test/s3.test.ts",
     "test:package": "npm run build && node test/package-smoke.mjs",
     "prepack": "npm run build"
   },

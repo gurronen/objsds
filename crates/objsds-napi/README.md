@@ -20,3 +20,32 @@ npm run build
 
 The native build produces a platform-specific `.node` file in `npm/`. Generated
 binaries, declarations, and TypeScript output are ignored by git.
+
+## Why `AsyncTask`
+
+The core and its adapters deliberately expose blocking APIs. Running those calls
+inside an ordinary Node-API method would block Node's event loop. Each lifecycle,
+Map, and Log operation is therefore represented by a napi-rs `AsyncTask`:
+`compute` runs in libuv's native worker pool and its result resolves a Promise on
+the JavaScript thread. This is not a `node:worker_threads` isolate and it does
+not make the underlying request cancellable. It is the smallest adapter that
+preserves the blocking Rust contract while supporting normal JavaScript
+`async`/`await` without freezing timers or unrelated JavaScript work.
+
+libuv's pool is process-wide and also serves some filesystem, DNS, and crypto
+work. Applications issuing many long-running calls should bound concurrency.
+A future genuinely async store adapter could instead await non-blocking network
+I/O; a dedicated Worker Thread or sidecar process are alternatives when work
+must not share libuv's pool.
+
+References: [napi-rs AsyncTask](https://napi.rs/docs/concepts/async-task),
+[Node.js event-loop guidance](https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop),
+and [Node.js Worker Threads](https://nodejs.org/api/worker_threads.html).
+
+## Native targets
+
+`scripts/build-native.mjs` is the single, shell-independent native build entry
+point. It accepts `--target <rust-triple>`, rejects targets outside the supported
+matrix, and works on Windows, macOS, and Linux. CI builds native artifacts on
+Linux x64/arm64, macOS x64/arm64, and Windows x64. The loader and target allowlist
+also cover Windows arm64 and Linux musl x64/arm64 for release cross-compilation.

@@ -34,6 +34,10 @@ description = "Install, typecheck, and test the TypeScript bindings"
 dir = "crates/objsds-napi/npm"
 run = "npm ci && npm run check && npm test"
 
+[tasks."test:typescript:s3"]
+description = "Run the TypeScript S3 integration test against RustFS"
+run = "pitchfork start rustfs && OBJSDS_RUSTFS_E2E=1 cargo test -p objsds-tests --features rustfs-e2e --test rustfs -- --nocapture && cd crates/objsds-napi/npm && OBJSDS_RUSTFS_E2E=1 npm run test:s3"
+
 [tasks."test:e2e"]
 description = "Start RustFS with Pitchfork and run the S3 end-to-end test"
 run = "pitchfork start rustfs && OBJSDS_RUSTFS_E2E=1 cargo test -p objsds-tests --features rustfs-e2e --test rustfs -- --nocapture"
