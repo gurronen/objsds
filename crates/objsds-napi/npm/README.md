@@ -66,7 +66,12 @@ finishes, so `await map.get(...)` does not run storage I/O on the event-loop
 thread. This is deliberately lighter than creating a JavaScript
 [`Worker`](https://nodejs.org/api/worker_threads.html), but high-concurrency
 applications should still bound outstanding calls because the libuv pool is
-shared with other Node facilities. See the [native crate design](https://github.com/gurronen/objsds/blob/main/crates/objsds-napi/README.md#why-asynctask)
+shared with other Node facilities. Every lifecycle and data operation accepts
+`{ signal?: AbortSignal }`. Aborting rejects queued work promptly; if blocking
+storage I/O has already started, the Promise is rejected but that native call
+may continue in the background and may already have applied a mutation. Treat
+cancellation of a mutation as an ambiguous outcome and read fresh state before
+retrying. See the [native crate design](https://github.com/gurronen/objsds/blob/main/crates/objsds-napi/README.md#why-asynctask)
 for alternatives and links.
 
 ## Native development builds

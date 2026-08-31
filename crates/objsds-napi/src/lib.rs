@@ -9,7 +9,7 @@ use std::fmt::Display;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use napi::bindgen_prelude::AsyncTask;
+use napi::bindgen_prelude::{AbortSignal, AsyncTask};
 use napi::{Env, Error as NapiError, Result as NapiResult, Status, Task};
 use napi_derive::napi;
 use objsds::s3::{Credentials, S3Store};
@@ -212,44 +212,73 @@ pub fn s3_client(
 impl NativeClient {
     /// Creates a map and returns an opaque native handle encoded as JSON.
     #[napi(js_name = "mapCreate")]
-    pub fn map_create(&self, name: String, schema: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::MapLifecycle {
-            lifecycle: Lifecycle::Create,
-            name,
-            schema,
-        })
+    pub fn map_create(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::MapLifecycle {
+                lifecycle: Lifecycle::Create,
+                name,
+                schema,
+            },
+            signal,
+        )
     }
 
     /// Opens a map and returns an opaque native handle encoded as JSON.
     #[napi(js_name = "mapOpen")]
-    pub fn map_open(&self, name: String, schema: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::MapLifecycle {
-            lifecycle: Lifecycle::Open,
-            name,
-            schema,
-        })
+    pub fn map_open(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::MapLifecycle {
+                lifecycle: Lifecycle::Open,
+                name,
+                schema,
+            },
+            signal,
+        )
     }
 
     /// Opens or creates a map and returns an opaque native handle encoded as JSON.
     #[napi(js_name = "mapOpenOrCreate")]
-    pub fn map_open_or_create(&self, name: String, schema: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::MapLifecycle {
-            lifecycle: Lifecycle::OpenOrCreate,
-            name,
-            schema,
-        })
+    pub fn map_open_or_create(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::MapLifecycle {
+                lifecycle: Lifecycle::OpenOrCreate,
+                name,
+                schema,
+            },
+            signal,
+        )
     }
 
     /// Reads one map entry.
     #[napi(js_name = "mapGet")]
-    pub fn map_get(&self, handle: u32, key: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::MapGet { handle, key })
+    pub fn map_get(
+        &self,
+        handle: u32,
+        key: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(Operation::MapGet { handle, key }, signal)
     }
 
     /// Reads all map entries.
     #[napi(js_name = "mapEntries")]
-    pub fn map_entries(&self, handle: u32) -> AsyncTask<BindingTask> {
-        self.task(Operation::MapEntries { handle })
+    pub fn map_entries(&self, handle: u32, signal: Option<AbortSignal>) -> AsyncTask<BindingTask> {
+        self.task(Operation::MapEntries { handle }, signal)
     }
 
     /// Inserts one map entry.
@@ -259,12 +288,16 @@ impl NativeClient {
         handle: u32,
         key: String,
         value_json: String,
+        signal: Option<AbortSignal>,
     ) -> AsyncTask<BindingTask> {
-        self.task(Operation::MapInsert {
-            handle,
-            key,
-            value_json,
-        })
+        self.task(
+            Operation::MapInsert {
+                handle,
+                key,
+                value_json,
+            },
+            signal,
+        )
     }
 
     /// Inserts one map entry when absent.
@@ -274,18 +307,27 @@ impl NativeClient {
         handle: u32,
         key: String,
         value_json: String,
+        signal: Option<AbortSignal>,
     ) -> AsyncTask<BindingTask> {
-        self.task(Operation::MapInsertIfAbsent {
-            handle,
-            key,
-            value_json,
-        })
+        self.task(
+            Operation::MapInsertIfAbsent {
+                handle,
+                key,
+                value_json,
+            },
+            signal,
+        )
     }
 
     /// Removes one map entry.
     #[napi(js_name = "mapRemove")]
-    pub fn map_remove(&self, handle: u32, key: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::MapRemove { handle, key })
+    pub fn map_remove(
+        &self,
+        handle: u32,
+        key: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(Operation::MapRemove { handle, key }, signal)
     }
 
     /// Releases a map handle from the native registry.
@@ -296,32 +338,56 @@ impl NativeClient {
 
     /// Creates a log and returns an opaque native handle encoded as JSON.
     #[napi(js_name = "logCreate")]
-    pub fn log_create(&self, name: String, schema: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::LogLifecycle {
-            lifecycle: Lifecycle::Create,
-            name,
-            schema,
-        })
+    pub fn log_create(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::LogLifecycle {
+                lifecycle: Lifecycle::Create,
+                name,
+                schema,
+            },
+            signal,
+        )
     }
 
     /// Opens a log and returns an opaque native handle encoded as JSON.
     #[napi(js_name = "logOpen")]
-    pub fn log_open(&self, name: String, schema: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::LogLifecycle {
-            lifecycle: Lifecycle::Open,
-            name,
-            schema,
-        })
+    pub fn log_open(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::LogLifecycle {
+                lifecycle: Lifecycle::Open,
+                name,
+                schema,
+            },
+            signal,
+        )
     }
 
     /// Opens or creates a log and returns an opaque native handle encoded as JSON.
     #[napi(js_name = "logOpenOrCreate")]
-    pub fn log_open_or_create(&self, name: String, schema: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::LogLifecycle {
-            lifecycle: Lifecycle::OpenOrCreate,
-            name,
-            schema,
-        })
+    pub fn log_open_or_create(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::LogLifecycle {
+                lifecycle: Lifecycle::OpenOrCreate,
+                name,
+                schema,
+            },
+            signal,
+        )
     }
 
     /// Releases a log handle from the native registry.
@@ -332,33 +398,51 @@ impl NativeClient {
 
     /// Appends one log value.
     #[napi(js_name = "logAppend")]
-    pub fn log_append(&self, handle: u32, value_json: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::LogAppend { handle, value_json })
+    pub fn log_append(
+        &self,
+        handle: u32,
+        value_json: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(Operation::LogAppend { handle, value_json }, signal)
     }
 
     /// Reads one log record.
     #[napi(js_name = "logGet")]
-    pub fn log_get(&self, handle: u32, id: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::LogGet { handle, id })
+    pub fn log_get(
+        &self,
+        handle: u32,
+        id: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(Operation::LogGet { handle, id }, signal)
     }
 
     /// Reads all log records.
     #[napi(js_name = "logRecords")]
-    pub fn log_records(&self, handle: u32) -> AsyncTask<BindingTask> {
-        self.task(Operation::LogRecords { handle })
+    pub fn log_records(&self, handle: u32, signal: Option<AbortSignal>) -> AsyncTask<BindingTask> {
+        self.task(Operation::LogRecords { handle }, signal)
     }
 
     /// Reads log records after an identifier.
     #[napi(js_name = "logRecordsAfter")]
-    pub fn log_records_after(&self, handle: u32, id: String) -> AsyncTask<BindingTask> {
-        self.task(Operation::LogRecordsAfter { handle, id })
+    pub fn log_records_after(
+        &self,
+        handle: u32,
+        id: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(Operation::LogRecordsAfter { handle, id }, signal)
     }
 
-    fn task(&self, operation: Operation) -> AsyncTask<BindingTask> {
-        AsyncTask::new(BindingTask {
-            state: Arc::clone(&self.state),
-            operation: Some(operation),
-        })
+    fn task(&self, operation: Operation, signal: Option<AbortSignal>) -> AsyncTask<BindingTask> {
+        AsyncTask::with_optional_signal(
+            BindingTask {
+                state: Arc::clone(&self.state),
+                operation: Some(operation),
+            },
+            signal,
+        )
     }
 }
 

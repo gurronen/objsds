@@ -98,6 +98,19 @@ test("appends and traverses a typed log", async () => {
   ]);
 });
 
+test("supports AbortSignal cancellation for queued native work", async () => {
+  const client = Objsds.memory({ namespace: "abort" });
+  const map = await client.map<number>("counts", { schema: "count-v1" }).create();
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(map.get("total", { signal: controller.signal }), /abort/i);
+  await assert.rejects(
+    client.log<number>("events", { schema: "event-v1" }).create({ signal: controller.signal }),
+    /abort/i,
+  );
+});
+
 test("returns stable structured errors", async () => {
   const client = Objsds.memory({ namespace: "errors" });
   const builder = client.map<string>("missing", { schema: "text-v1" });
