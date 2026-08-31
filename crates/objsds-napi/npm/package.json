@@ -31,6 +31,7 @@
     "check": "tsc --noEmit",
     "pretest": "npm run build:native",
     "test": "node --import tsx --test test/*.test.ts",
+    "pretest:s3": "npm run build:native",
     "test:s3": "node --import tsx --test test/s3.test.ts",
     "test:package": "npm run build && node test/package-smoke.mjs",
     "prepack": "npm run build"
