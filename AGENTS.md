@@ -1,5 +1,7 @@
 # Agent instructions
 
+Follow the project contribution and validation guidance in `CONTRIBUTING.md`.
+
 ## hk
 
 - Before changing files, inspect the project with `hk mcp` or `hk run check --safe --format json`.
