@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import nativeBinding from "./native-loader.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -104,8 +104,7 @@ interface NativeBinding {
   ): NativeClient;
 }
 
-const require = createRequire(import.meta.url);
-const native = require("../native.cjs") as NativeBinding;
+const native = nativeBinding as NativeBinding;
 
 export class Objsds {
   readonly #native: NativeClient;

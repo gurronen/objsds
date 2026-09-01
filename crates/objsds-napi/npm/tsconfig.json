@@ -7,11 +7,8 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "dist",
+    "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "tsup.config.ts"]
+  "include": ["src", "test"]
 }

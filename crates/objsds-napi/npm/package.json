@@ -18,7 +18,6 @@
   },
   "files": [
     "dist",
-    "native.cjs",
     "*.node"
   ],
   "sideEffects": false,
@@ -26,8 +25,9 @@
     "binaryName": "objsds-napi"
   },
   "scripts": {
-    "build": "npm run build:native && tsup",
+    "build": "npm run build:native && npm run build:typescript",
     "build:native": "node scripts/build-native.mjs",
+    "build:typescript": "node scripts/build-typescript.mjs",
     "check": "tsc --noEmit",
     "pretest": "npm run build:native",
     "test": "node --import tsx --test test/*.test.ts",
@@ -39,7 +39,6 @@
   "devDependencies": {
     "@napi-rs/cli": "^3.4.1",
     "@types/node": "^24.0.0",
-    "tsup": "^8.5.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }
