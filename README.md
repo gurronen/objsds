@@ -1,14 +1,28 @@
 # objsds
 
-Minimal, blocking, leaderless data structures backed by one object each.
+Blocking, leaderless `Map` and append-only `Log` data structures for object
+storage.
 
-`objsds` provides typed `Map` and append-only `Log` APIs over object stores. It
-uses read-after-write consistency, conditional creation, and compare-and-swap
-replacement rather than a database, coordinator, leader, or continuously
-running service.
+`objsds` is a small Rust workspace for applications that need coherent shared
+state without operating a database or coordination service. Each data structure
+is stored as one JSON object and updated with conditional creation and
+compare-and-swap replacement. Adapters are included for memory, local
+filesystems, and S3-compatible stores.
 
 > **Status:** experimental. The public API and stored JSON format are not yet
 > stable.
+
+## Development setup
+
+The repository uses [mise](https://mise.jdx.dev/) to provide the Rust toolchain
+and development utilities. Install the pinned tools and repository hooks with:
+
+```console
+mise install
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and pull-request
+guidance.
 
 ## Design
 
@@ -145,39 +159,45 @@ sync. Network or distributed filesystems are unsupported unless they provide
 those semantics. Host filesystem and hardware behavior ultimately bound crash
 durability.
 
-## Testing
+## Testing and validation
 
-Run the memory-backed suite with:
-
-```console
-cargo test --workspace
-```
-
-Run the full S3-compatible experience against the RustFS daemon defined in
-`pitchfork.toml` with:
+Use the mise tasks so local validation uses the same pinned tools as the
+project. Run the complete suite before opening a pull request:
 
 ```console
-mise run test:e2e
+mise run ci
 ```
 
-The task starts RustFS through Pitchfork, creates the test bucket if needed,
-and exercises lifecycle, Map, Log, conditional creation, and stale-version
-conflicts exclusively through public crate APIs.
+The available validation tasks are:
+
+| Command | Purpose |
+| --- | --- |
+| `mise run pre-commit` | Run the checks configured for the pre-commit hook |
+| `mise run check` | Run applicable project checks through hk |
+| `mise run test` | Run Rust tests for all targets |
+| `mise run fmt` | Check Rust formatting |
+| `mise run lint` | Run Clippy for all targets and features with warnings denied |
+| `mise run deny` | Check dependency advisories, licenses, bans, and sources |
+| `mise run package` | Validate all publishable workspace packages |
+| `mise run ci` | Run formatting, linting, tests, dependency policy, and packaging |
+| `mise run test:e2e` | Start RustFS and run the S3 end-to-end suite |
+| `mise run test:perf` | Measure RustFS Map and Log throughput under CAS contention |
+
+### S3 end-to-end tests
+
+`mise run test:e2e` starts the RustFS daemon defined in `pitchfork.toml`, creates
+the test bucket if needed, and exercises lifecycle, Map, Log, conditional
+creation, and stale-version conflicts exclusively through public crate APIs.
+It is separate from `mise run ci` because it requires a local RustFS service.
 
 ### RustFS CAS contention evaluation
 
-Run the opt-in performance evaluation with:
-
-```console
-mise run test:perf
-```
-
-It starts RustFS, then concurrently attempts writes to one shared Map and one
-shared Log without retrying conflicts or introducing a broker. The output is
-one stable, key-value line per structure containing attempted operations,
-successes, CAS conflicts, elapsed time, operation throughput, and conflict
-percentage. `attempt_ops_per_sec` measures complete `Map::insert` or
-`Log::append` attempts, not individual HTTP requests.
+`mise run test:perf` starts RustFS, then concurrently attempts writes to one
+shared Map and one shared Log without retrying conflicts or introducing a
+broker. The output is one stable, key-value line per structure containing
+attempted operations, successes, CAS conflicts, elapsed time, operation
+throughput, and conflict percentage. `attempt_ops_per_sec` measures complete
+`Map::insert` or `Log::append` attempts, not individual HTTP requests.
 
 The defaults are 8 workers and 25 operations per worker. Override them to make
 repeatable comparisons with:
@@ -186,9 +206,9 @@ repeatable comparisons with:
 OBJSDS_PERF_WORKERS=16 OBJSDS_PERF_OPERATIONS_PER_WORKER=100 mise run test:perf
 ```
 
-The test is ignored by default, so normal test runs remain fast and do not
-require RustFS. Use the same worker and operation counts when comparing runs;
-results depend on the machine and object-store environment.
+The performance test is ignored by default, so normal test runs remain fast and
+do not require RustFS. Use the same worker and operation counts when comparing
+runs; results depend on the machine and object-store environment.
 
 Runnable examples live under `crates/objsds/examples`. Run the persistent local
 example with `cargo run -p objsds --example filesystem`.
