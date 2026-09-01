@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "TypeScript bindings for objsds",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gurronen/objsds.git",
+    "directory": "crates/objsds-napi/npm"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -34,7 +42,9 @@
     "pretest:s3": "npm run build:native",
     "test:s3": "node --import tsx --test test/s3.test.ts",
     "test:package": "npm run build && node test/package-smoke.mjs && node test/install-tarball.mjs",
-    "prepack": "npm run build"
+    "test:release": "node --test test/release.test.mjs",
+    "release:validate": "node scripts/validate-release.mjs",
+    "prepack": "npm run build:typescript"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.4.1",

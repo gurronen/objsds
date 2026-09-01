@@ -57,3 +57,26 @@ artifacts on Linux x64/arm64, macOS arm64, and Windows x64. The loader and targe
 allowlist also cover Windows arm64 and Linux musl x64/arm64 for release
 cross-compilation. Intel Macs are explicitly unsupported; the native loader
 fails with an actionable error on `darwin-x64`.
+
+## npm releases
+
+The versioned `Release` workflow publishes one public `@objsds/client` package
+containing the ESM facade, bundled TypeScript declarations, and native binaries
+for every supported target. Keeping the binaries together makes the initial
+release flow and consumer installation straightforward; per-platform optional
+packages can be introduced later if package download size becomes a concern.
+The workflow builds each binary in an isolated matrix job, collects the
+artifacts, verifies that all seven expected targets and the committed npm
+version are present, and only then publishes. `prepack` compiles TypeScript but
+deliberately does not rebuild native code, so an x64 publishing runner cannot
+overwrite or impersonate the collected cross-platform artifacts.
+
+The initial publish uses a granular npm automation token stored only as
+`NPM_TOKEN` in the protected GitHub `npm` environment. Do not commit the token
+or add it to repository-level configuration. After the package exists on npm,
+replace token authentication with npm trusted publishing: configure
+`gurronen/objsds`, workflow `release.yml`, environment `npm`, and the
+`npm publish` action under the package's Trusted publishing settings; then use
+npm 11.5.1 or newer in the publish job and remove `NODE_AUTH_TOKEN`. The job
+already grants the required `id-token: write` permission and publishes with
+provenance.
