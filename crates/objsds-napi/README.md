@@ -46,6 +46,8 @@ and [Node.js Worker Threads](https://nodejs.org/api/worker_threads.html).
 
 `scripts/build-native.mjs` is the single, shell-independent native build entry
 point. It accepts `--target <rust-triple>`, rejects targets outside the supported
-matrix, and works on Windows, macOS, and Linux. CI builds native artifacts on
-Linux x64/arm64, macOS x64/arm64, and Windows x64. The loader and target allowlist
-also cover Windows arm64 and Linux musl x64/arm64 for release cross-compilation.
+matrix, and works on Windows, Apple Silicon macOS, and Linux. CI builds native
+artifacts on Linux x64/arm64, macOS arm64, and Windows x64. The loader and target
+allowlist also cover Windows arm64 and Linux musl x64/arm64 for release
+cross-compilation. Intel Macs are explicitly unsupported; the native loader
+fails with an actionable error on `darwin-x64`.

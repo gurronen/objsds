@@ -73,8 +73,9 @@ Set `OBJSDS_NATIVE_BINARY` to an explicit `.node` file to test a custom build.
 The override is strict and never falls back silently. Normal installations load
 the binary bundled with the package or the matching optional platform package.
 Use `npm run build:native -- --target <rust-triple>` for an explicit target; the
-build entry point validates the eight supported Windows, macOS, Linux glibc, and
-Linux musl x64/arm64 targets.
+build entry point validates the seven supported targets: Windows x64/arm64,
+Apple Silicon macOS, and Linux glibc/musl x64/arm64. Intel Macs are explicitly
+unsupported and fail with an actionable loader error.
 
 Run the real S3 binding journey locally with Docker available:
 

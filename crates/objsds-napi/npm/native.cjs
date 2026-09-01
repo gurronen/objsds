@@ -13,6 +13,12 @@ function detectLibc() {
 }
 
 function targetNames() {
+  if (process.platform === 'darwin') {
+    if (process.arch !== 'arm64') {
+      throw new Error('Intel macOS is not supported; @objsds/client requires Apple Silicon')
+    }
+    return ['darwin-arm64']
+  }
   if (process.platform !== 'linux') return [`${process.platform}-${process.arch}`]
   const detected = detectLibc()
   return detected === 'musl'
