@@ -83,7 +83,7 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets --all-features -- -D warnings
           cargo test --workspace --all-targets
-          cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked
+          cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked --allow-dirty
 
   native-build:
     needs: version
