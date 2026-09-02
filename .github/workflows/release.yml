@@ -1,78 +1,92 @@
 name: Release
+run-name: ${{ inputs.publish && format('release {0}', inputs.version || 'next patch') || format('rehearse {0}', inputs.version || 'next patch') }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version already committed in Cargo.toml and package.json (without v)
-        required: true
+        description: Exact SemVer override; defaults to one patch after the registries' current version
+        required: false
         type: string
+      publish:
+        description: Publish crates.io, npm, GitHub assets, and the final version tag
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: release
+  group: release-${{ github.ref }}-${{ inputs.version || 'next-patch' }}
   cancel-in-progress: false
 
 jobs:
-  validate:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Require current main branch
-        env:
-          EXPECTED_REF: refs/heads/main
+      - name: Require current main for publication
+        if: inputs.publish
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != "$EXPECTED_REF" ]]; then
-            echo "release workflows must run from ${EXPECTED_REF}, not ${GITHUB_REF}" >&2
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "published releases must run from main, not ${GITHUB_REF}" >&2
             exit 1
           fi
-
           git fetch --no-tags origin main
           if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
             echo "the selected commit is not the current origin/main" >&2
             exit 1
           fi
-          if [[ -n "$(git status --porcelain)" ]]; then
-            echo "release checkout is dirty" >&2
-            git status --short >&2
-            exit 1
-          fi
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: crates/objsds-napi/npm/package-lock.json
 
-      - name: Validate versions and release state
+      - name: Resolve release version
+        id: version
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION_OVERRIDE: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          python3 scripts/release.py validate --version "$VERSION"
-          npm_version="$(node -p "require('./crates/objsds-napi/npm/package.json').version")"
-          if [[ "$npm_version" != "$VERSION" ]]; then
-            echo "@objsds/client version ${npm_version} does not match release ${VERSION}" >&2
-            exit 1
+          if [[ -n "$VERSION_OVERRIDE" ]]; then
+            version="$(python3 scripts/release.py resolve --version "$VERSION_OVERRIDE")"
+          else
+            version="$(python3 scripts/release.py resolve)"
           fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version ${version}"
 
-      - name: Validate workspace
+      - name: Stage release versions
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 scripts/release.py prepare --version "$VERSION"
+
+      - name: Validate complete workspace
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
+          python3 scripts/release.py validate --version "$VERSION"
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets --all-features -- -D warnings
           cargo test --workspace --all-targets
           cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked
 
   native-build:
-    needs: validate
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -138,26 +152,9 @@ jobs:
           path: crates/objsds-napi/npm/objsds-napi.*.node
           if-no-files-found: error
 
-  publish-crates:
-    needs: [validate, native-build]
+  package-npm:
+    needs: [version, native-build]
     runs-on: ubuntu-latest
-    environment: crates-io
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Publish crates
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          VERSION: ${{ inputs.version }}
-        run: python3 scripts/release.py publish --version "$VERSION"
-
-  publish-npm:
-    needs: [validate, native-build]
-    runs-on: ubuntu-latest
-    environment: npm
-    permissions:
-      contents: read
-      id-token: write
     defaults:
       run:
         working-directory: crates/objsds-napi/npm
@@ -166,7 +163,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
           cache: npm
           cache-dependency-path: crates/objsds-napi/npm/package-lock.json
       - uses: actions/download-artifact@v4
@@ -174,41 +170,106 @@ jobs:
           pattern: native-*
           path: crates/objsds-napi/npm
           merge-multiple: true
+      - name: Stage npm version
+        working-directory: ${{ github.workspace }}
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: python3 scripts/release.py prepare --version "$VERSION"
       - run: npm ci
       - run: npm run check
       - run: npm run build:typescript
       - run: npm run test:release
+      - run: node test/package-smoke.mjs && node test/install-tarball.mjs
       - name: Validate assembled npm package
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: npm run release:validate -- "$VERSION"
-      - run: npm pack --dry-run
+      - name: Pack exact release tarball
+        run: mkdir -p release && npm pack --pack-destination release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: crates/objsds-napi/npm/release/*.tgz
+          if-no-files-found: error
+
+  publish-crates:
+    if: inputs.publish
+    needs: [version, native-build, package-npm]
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Stage Cargo release version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          python3 scripts/release.py prepare --version "$VERSION"
+          cargo check --workspace
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: python3 scripts/release.py publish --version "$VERSION"
+
+  publish-npm:
+    if: inputs.publish
+    needs: [version, native-build, package-npm]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: release
       - name: Publish @objsds/client
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           if npm view "@objsds/client@${VERSION}" version >/dev/null 2>&1; then
             echo "@objsds/client ${VERSION} is already published; skipping"
           else
-            npm publish --access public --provenance
+            npm publish release/*.tgz --access public --provenance
           fi
 
-  tag:
-    needs: [publish-crates, publish-npm]
+  github-release:
+    if: inputs.publish
+    needs: [version, native-build, package-npm, publish-crates, publish-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-      - name: Tag release
+          pattern: native-*
+          path: release-assets
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: release-assets
+      - name: Create final tag and GitHub Release
         env:
-          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           tag="v${VERSION}"
-          git tag --annotate "$tag" --message "Release ${VERSION}"
-          git push origin "$tag"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$tag" \
+              --generate-notes
+          fi

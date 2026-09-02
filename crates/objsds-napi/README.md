@@ -60,18 +60,26 @@ fails with an actionable error on `darwin-x64`.
 
 ## npm releases
 
-The versioned `Release` workflow publishes one public `@objsds/client` package
-containing the ESM facade, bundled TypeScript declarations, and native binaries
-for every supported target. Keeping the binaries together makes the initial
-release flow and consumer installation straightforward; per-platform optional
-packages can be introduced later if package download size becomes a concern.
-The workflow builds each binary in an isolated matrix job, collects the
-artifacts, verifies that all seven expected targets and the committed npm
-version are present, and only then publishes. `prepack` compiles TypeScript but
-deliberately does not rebuild native code, so an x64 publishing runner cannot
-overwrite or impersonate the collected cross-platform artifacts.
+The manually dispatched `Release` workflow is the single release action for
+crates.io, npm, and GitHub. It never runs automatically after a merge. With no
+version override it reads the current `objsds` and `@objsds/client` registry
+versions and selects the next patch (the initial local `0.1.0` baseline resolves
+to `0.1.1`). Source manifests remain at their development baseline, while the
+workflow stages the resolved version into Cargo and npm metadata before
+packaging, following the tag-derived release pattern used by OpenCode.
 
-The initial publish uses a granular npm automation token stored only as
+By default the action is a non-publishing rehearsal: it packages every Cargo
+crate, builds all seven native targets, assembles and validates the npm package,
+and retains the resulting artifacts in GitHub Actions. Selecting `publish`
+requires current `main`; only after both registries succeed does the final job
+create `v<version>` and a GitHub Release containing every `.node` binary and the
+exact npm `.tgz`. Keeping the binaries together makes the initial consumer flow
+straightforward; per-platform optional packages can be introduced later if
+package download size becomes a concern. `prepack` compiles TypeScript but does
+not rebuild native code, so the publishing runner cannot overwrite the
+collected cross-platform artifacts.
+
+The initial npm publish uses a granular automation token stored only as
 `NPM_TOKEN` in the protected GitHub `npm` environment. Do not commit the token
 or add it to repository-level configuration. After the package exists on npm,
 replace token authentication with npm trusted publishing: configure

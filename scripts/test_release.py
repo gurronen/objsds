@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
+import json
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import release
@@ -11,7 +14,13 @@ class ReleaseTests(unittest.TestCase):
     def test_crates_are_in_dependency_order(self) -> None:
         self.assertEqual(
             release.CRATES,
-            ("objsds-store", "objsds-store-memory", "objsds-store-s3", "objsds"),
+            (
+                "objsds-store",
+                "objsds-store-filesystem",
+                "objsds-store-memory",
+                "objsds-store-s3",
+                "objsds",
+            ),
         )
 
     def test_publish_skips_existing_crates(self) -> None:
@@ -29,11 +38,11 @@ class ReleaseTests(unittest.TestCase):
 
         self.assertEqual(
             [command[-1] for command in commands],
-            ["objsds-store-memory", "objsds-store-s3", "objsds"],
+            ["objsds-store-filesystem", "objsds-store-memory", "objsds-store-s3", "objsds"],
         )
 
     def test_publish_rechecks_registry_after_failure(self) -> None:
-        statuses = iter((404, 200, 200, 200, 200))
+        statuses = iter((404, 200, 200, 200, 200, 200))
         attempts = []
 
         def fail_once(command) -> str:
@@ -55,6 +64,42 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "invalid SemVer"):
                 release.validate("01.2.3")
         runner.assert_not_called()
+
+    def test_resolve_defaults_to_patch_after_matching_registries(self) -> None:
+        self.assertEqual(
+            release.resolve_version(None, current="0.1.0", published=("1.2.3", "1.2.3")),
+            "1.2.4",
+        )
+
+    def test_resolve_uses_local_baseline_for_first_release(self) -> None:
+        self.assertEqual(
+            release.resolve_version(None, current="0.1.0", published=(None, None)),
+            "0.1.1",
+        )
+
+    def test_resolve_rejects_registry_drift(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "registry versions differ"):
+            release.resolve_version(None, current="0.1.0", published=("1.2.3", "1.2.2"))
+
+    def test_prepare_versions_cargo_and_npm_staging_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            npm = root / "crates/objsds-napi/npm"
+            npm.mkdir(parents=True)
+            (root / "Cargo.toml").write_text(
+                '[workspace.package]\nversion = "0.1.0"\n\n[workspace.dependencies]\n'
+                'objsds = { version = "0.1.0", path = "crates/objsds" }\n'
+            )
+            (npm / "package.json").write_text(json.dumps({"version": "0.1.0"}))
+            (npm / "package-lock.json").write_text(
+                json.dumps({"version": "0.1.0", "packages": {"": {"version": "0.1.0"}}})
+            )
+
+            release.prepare(root, "0.1.1")
+
+            self.assertNotIn('version = "0.1.0"', (root / "Cargo.toml").read_text())
+            self.assertEqual(json.loads((npm / "package.json").read_text())["version"], "0.1.1")
+            self.assertEqual(json.loads((npm / "package-lock.json").read_text())["version"], "0.1.1")
 
     def test_dry_run_does_not_publish(self) -> None:
         runner = unittest.mock.Mock()
