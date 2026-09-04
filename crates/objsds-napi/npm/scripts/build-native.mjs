@@ -22,6 +22,16 @@ if (targetIndex !== -1 && !target) {
   process.exit(2);
 }
 
+const buildFlags = forwarded.filter(
+  (_, index) => targetIndex === -1 || (index !== targetIndex && index !== targetIndex + 1),
+);
+const supportedBuildFlags = new Set(["--cross-compile", "-x", "--use-napi-cross"]);
+const unsupportedFlag = buildFlags.find((flag) => !supportedBuildFlags.has(flag));
+if (unsupportedFlag) {
+  console.error(`Unsupported native build flag ${unsupportedFlag}`);
+  process.exit(2);
+}
+
 const args = [
   "build",
   "--manifest-path", "../Cargo.toml",
@@ -33,6 +43,7 @@ const args = [
   "--dts", "native.d.ts",
 ];
 if (target) args.push("--target", target);
+args.push(...buildFlags);
 
 const result = spawnSync("napi", args, { stdio: "inherit", shell: process.platform === "win32" });
 if (result.error) throw result.error;

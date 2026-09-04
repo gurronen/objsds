@@ -57,3 +57,34 @@ artifacts on Linux x64/arm64, macOS arm64, and Windows x64. The loader and targe
 allowlist also cover Windows arm64 and Linux musl x64/arm64 for release
 cross-compilation. Intel Macs are explicitly unsupported; the native loader
 fails with an actionable error on `darwin-x64`.
+
+## npm releases
+
+The manually dispatched `Release` workflow is the single release action for
+crates.io, npm, and GitHub. It never runs automatically after a merge. With no
+version override it reads the current `objsds` and `@objsds/client` registry
+versions and selects the next patch (the initial local `0.1.0` baseline resolves
+to `0.1.1`). Source manifests remain at their development baseline, while the
+workflow stages the resolved version into Cargo and npm metadata before
+packaging, following the tag-derived release pattern used by OpenCode.
+
+By default the action is a non-publishing rehearsal: it packages every Cargo
+crate, builds all seven native targets, assembles and validates the npm package,
+and retains the resulting artifacts in GitHub Actions. Selecting `publish`
+requires current `main`; only after both registries succeed does the final job
+create `v<version>` and a GitHub Release containing every `.node` binary and the
+exact npm `.tgz`. Keeping the binaries together makes the initial consumer flow
+straightforward; per-platform optional packages can be introduced later if
+package download size becomes a concern. `prepack` compiles TypeScript but does
+not rebuild native code, so the publishing runner cannot overwrite the
+collected cross-platform artifacts.
+
+The initial npm publish uses a granular automation token stored only as
+`NPM_TOKEN` in the protected GitHub `npm` environment. Do not commit the token
+or add it to repository-level configuration. After the package exists on npm,
+replace token authentication with npm trusted publishing: configure
+`gurronen/objsds`, workflow `release.yml`, environment `npm`, and the
+`npm publish` action under the package's Trusted publishing settings; then use
+npm 11.5.1 or newer in the publish job and remove `NODE_AUTH_TOKEN`. The job
+already grants the required `id-token: write` permission and publishes with
+provenance.

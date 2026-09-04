@@ -25,6 +25,7 @@ function targetNames(): string[] {
     }
     return ["darwin-arm64"];
   }
+  if (process.platform === "win32") return [`win32-${process.arch}-msvc`];
   if (process.platform !== "linux") return [`${process.platform}-${process.arch}`];
   const detected = detectLibc();
   return detected === "musl"
