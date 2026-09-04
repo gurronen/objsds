@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -34,15 +35,23 @@ def run(command: Sequence[str], *, capture: bool = False) -> str:
     return result.stdout.strip() if capture else ""
 
 
-def request_json(url: str) -> dict | None:
+def request_json(url: str, *, attempts: int = 4, delay: int = 2) -> dict | None:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            if error.code < 500 or attempt == attempts:
+                raise
+        except (TimeoutError, urllib.error.URLError):
+            if attempt == attempts:
+                raise
+        print(f"registry request failed; retrying {url} in {delay} seconds", file=sys.stderr)
+        time.sleep(delay)
+    raise AssertionError("unreachable")
 
 
 def registry_status(crate: str, version: str) -> int:

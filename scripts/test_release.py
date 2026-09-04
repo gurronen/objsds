@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+from io import BytesIO
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +65,18 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "invalid SemVer"):
                 release.validate("01.2.3")
         runner.assert_not_called()
+
+    def test_registry_requests_retry_transient_timeouts(self) -> None:
+        with patch.object(
+            release.urllib.request,
+            "urlopen",
+            side_effect=(TimeoutError(), BytesIO(b'{"version":"1.2.3"}')),
+        ) as request:
+            self.assertEqual(
+                release.request_json("https://registry.example/package", attempts=2, delay=0),
+                {"version": "1.2.3"},
+            )
+        self.assertEqual(request.call_count, 2)
 
     def test_resolve_defaults_to_patch_after_matching_registries(self) -> None:
         self.assertEqual(
