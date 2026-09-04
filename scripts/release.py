@@ -152,9 +152,28 @@ def prepare(root: Path, version: str) -> None:
     lock_path.write_text(json.dumps(lock, indent=2) + "\n")
 
 
-def validate(version: str, *, status: Callable[[str, str], int] = registry_status) -> None:
+def git_tag_exists(tag: str) -> bool:
+    return (
+        subprocess.run(
+            ("git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"),
+            stdout=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
+
+
+def validate(
+    version: str,
+    *,
+    status: Callable[[str, str], int] = registry_status,
+    tag_exists: Callable[[str], bool] = git_tag_exists,
+) -> None:
     if not SEMVER.fullmatch(version):
         raise RuntimeError(f"invalid SemVer version: {version!r}")
+
+    tag = f"v{version}"
+    if tag_exists(tag):
+        raise RuntimeError(f"tag {tag} already exists")
 
     metadata = json.loads(run(("cargo", "metadata", "--no-deps", "--format-version", "1"), capture=True))
     publishable = [package for package in metadata["packages"] if package["publish"] != []]
@@ -197,6 +216,7 @@ def publish(
                 print(f"Would publish {crate} {version}")
                 break
             try:
+                # prepare() stages versions without committing; CI publishes that dirty tree.
                 runner(("cargo", "publish", "--locked", "--allow-dirty", "-p", crate))
                 break
             except subprocess.CalledProcessError:
