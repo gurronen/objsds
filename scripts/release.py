@@ -22,6 +22,14 @@ CRATES = (
     "objsds",
     "objsds-queue",
 )
+WORKSPACE_DEPENDENCIES = (
+    "objsds",
+    "objsds-queue",
+    "objsds-store",
+    "objsds-store-memory",
+    "objsds-store-filesystem",
+    "objsds-store-s3",
+)
 SEMVER = re.compile(
     r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
@@ -109,7 +117,26 @@ def prepare(root: Path, version: str) -> None:
     cargo_path = root / "Cargo.toml"
     cargo = cargo_path.read_text()
     old = workspace_version(root)
-    cargo = cargo.replace(f'version = "{old}"', f'version = "{version}"')
+    prefix, rest = cargo.split("[workspace.package]", 1)
+    package, after = rest.split("[", 1)
+    package, count = re.subn(
+        rf'(?m)^version = "{re.escape(old)}"$',
+        f'version = "{version}"',
+        package,
+        count=1,
+    )
+    if count != 1:
+        raise RuntimeError("workspace.package.version could not be updated")
+    cargo = prefix + "[workspace.package]" + package + "[" + after
+    for crate in WORKSPACE_DEPENDENCIES:
+        cargo, count = re.subn(
+            rf'(?m)^({re.escape(crate)} = \{{ version = )"{re.escape(old)}"',
+            rf'\1"{version}"',
+            cargo,
+            count=1,
+        )
+        if count != 1:
+            raise RuntimeError(f"{crate} workspace dependency version could not be updated")
     cargo_path.write_text(cargo)
 
     npm_root = root / "crates/objsds-napi/npm"
