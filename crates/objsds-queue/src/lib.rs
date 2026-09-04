@@ -369,7 +369,7 @@ where
             .checked_add(lease_millis)
             .ok_or(Error::InvalidLeaseDuration)?;
         let (version, mut document) = self.read()?;
-        let Some(message) = document.messages.iter_mut().find(|message| {
+        let Some(index) = document.messages.iter().position(|message| {
             message
                 .lease
                 .as_ref()
@@ -377,24 +377,27 @@ where
         }) else {
             return Ok(None);
         };
-        message.attempts = message
-            .attempts
-            .checked_add(1)
-            .ok_or(Error::AttemptOverflow)?;
         let token = LeaseToken(Uuid::now_v7());
-        message.lease = Some(Lease {
-            token,
-            expires_at_millis,
-        });
-        let claim = Claim {
+        {
+            let message = &mut document.messages[index];
+            message.attempts = message
+                .attempts
+                .checked_add(1)
+                .ok_or(Error::AttemptOverflow)?;
+            message.lease = Some(Lease {
+                token,
+                expires_at_millis,
+            });
+        }
+        self.write(&version, &document)?;
+        let message = &document.messages[index];
+        Ok(Some(Claim {
             id: message.id,
             value: message.value.clone(),
             lease_token: token,
             attempt: message.attempts,
             lease_expires_at_millis: expires_at_millis,
-        };
-        self.write(&version, &document)?;
-        Ok(Some(claim))
+        }))
     }
 
     /// Acknowledges and removes a message when the current unexpired lease matches.
