@@ -4,6 +4,8 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type Version = string & { readonly __version: unique symbol };
 export type LogId = string & { readonly __logId: unique symbol };
+export type MessageId = string & { readonly __messageId: unique symbol };
+export type LeaseToken = string & { readonly __leaseToken: unique symbol };
 
 export interface LogRecord<T> {
   id: LogId;
@@ -14,10 +16,22 @@ export type InsertIfAbsent<T> =
   | { inserted: true; version: Version }
   | { inserted: false; value: T };
 
+export interface QueueClaim<T> {
+  id: MessageId;
+  value: T;
+  leaseToken: LeaseToken;
+  attempt: number;
+  leaseExpiresAtMillis: number;
+}
+
+export type Ack = "acknowledged" | "notFound" | "leaseMismatch" | "leaseExpired";
+
 export type ObjsdsErrorCode =
   | "ERR_OBJSDS_INVALID_CONFIGURATION"
   | "ERR_OBJSDS_INVALID_JSON"
   | "ERR_OBJSDS_INVALID_LOG_ID"
+  | "ERR_OBJSDS_INVALID_MESSAGE_ID"
+  | "ERR_OBJSDS_INVALID_LEASE_TOKEN"
   | "ERR_OBJSDS_INVALID_HANDLE"
   | "ERR_OBJSDS_NOT_FOUND"
   | "ERR_OBJSDS_ALREADY_EXISTS"
@@ -94,13 +108,23 @@ interface NativeClient {
   logRecords(handle: number, signal?: AbortSignal): Promise<string>;
   logRecordsAfter(handle: number, id: string, signal?: AbortSignal): Promise<string>;
   logRelease(handle: number): boolean;
+  queueCreate(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  queueOpen(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  queueOpenOrCreate(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  queuePublish(handle: number, valueJson: string, signal?: AbortSignal): Promise<string>;
+  queueClaim(handle: number, leaseMillis: number, signal?: AbortSignal): Promise<string>;
+  queueAck(handle: number, id: string, token: string, signal?: AbortSignal): Promise<string>;
+  queueLen(handle: number, signal?: AbortSignal): Promise<string>;
+  queueIsEmpty(handle: number, signal?: AbortSignal): Promise<string>;
+  queueRelease(handle: number): boolean;
 }
 
-type NativeHandle = { nativeClient: NativeClient; handle: number; kind: "map" | "log" };
+type NativeHandle = { nativeClient: NativeClient; handle: number; kind: "map" | "log" | "queue" };
 
 const nativeHandleFinalizer = new FinalizationRegistry<NativeHandle>(({ nativeClient, handle, kind }) => {
   if (kind === "map") nativeClient.mapRelease(handle);
-  else nativeClient.logRelease(handle);
+  else if (kind === "log") nativeClient.logRelease(handle);
+  else nativeClient.queueRelease(handle);
 });
 
 interface NativeBinding {
@@ -169,6 +193,11 @@ export class Objsds {
   log<T = JsonValue>(name: string, options: StructureOptions): LogBuilder<T> {
     validateStructure(name, options);
     return new LogBuilder(this.#native, name, options.schema);
+  }
+
+  queue<T = JsonValue>(name: string, options: StructureOptions): QueueBuilder<T> {
+    validateStructure(name, options);
+    return new QueueBuilder(this.#native, name, options.schema);
   }
 }
 
@@ -307,6 +336,102 @@ export class ObjsdsLog<T> implements Disposable {
 
   recordsAfter(id: LogId, options: OperationOptions = {}): Promise<Array<LogRecord<T>>> {
     return nativeJson(() => this.nativeClient.logRecordsAfter(this.openHandle(), id, operationSignal(options)));
+  }
+
+  private openHandle(): number {
+    if (this.closed) throw closedHandleError();
+    return this.handle;
+  }
+}
+
+export class QueueBuilder<T> {
+  constructor(
+    private readonly nativeClient: NativeClient,
+    private readonly name: string,
+    private readonly schema: string,
+  ) {}
+
+  async create(options: OperationOptions = {}): Promise<ObjsdsQueue<T>> {
+    return this.openWith("queueCreate", options);
+  }
+
+  async open(options: OperationOptions = {}): Promise<ObjsdsQueue<T>> {
+    return this.openWith("queueOpen", options);
+  }
+
+  async openOrCreate(options: OperationOptions = {}): Promise<ObjsdsQueue<T>> {
+    return this.openWith("queueOpenOrCreate", options);
+  }
+
+  private async openWith(
+    method: "queueCreate" | "queueOpen" | "queueOpenOrCreate",
+    options: OperationOptions,
+  ): Promise<ObjsdsQueue<T>> {
+    const handle = await nativeJson<number>(() =>
+      this.nativeClient[method](this.name, this.schema, operationSignal(options)),
+    );
+    return new ObjsdsQueue<T>(this.nativeClient, handle);
+  }
+}
+
+export class ObjsdsQueue<T> implements Disposable {
+  private closed = false;
+
+  constructor(
+    private readonly nativeClient: NativeClient,
+    private readonly handle: number,
+  ) {
+    nativeHandleFinalizer.register(this, { nativeClient, handle, kind: "queue" }, this);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    nativeHandleFinalizer.unregister(this);
+    this.nativeClient.queueRelease(this.handle);
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
+  }
+
+  async publish(value: T, options: OperationOptions = {}): Promise<MessageId> {
+    const valueJson = jsonValue(value);
+    return nativeJson(() =>
+      this.nativeClient.queuePublish(this.openHandle(), valueJson, operationSignal(options)),
+    );
+  }
+
+  claim(leaseMillis: number, options: OperationOptions = {}): Promise<QueueClaim<T> | undefined> {
+    if (!Number.isSafeInteger(leaseMillis) || leaseMillis <= 0) {
+      throw new ObjsdsError(
+        "ERR_OBJSDS_INVALID_CONFIGURATION",
+        "lease duration must be a positive safe integer number of milliseconds",
+      );
+    }
+    return nativeOptional(() =>
+      this.nativeClient.queueClaim(this.openHandle(), leaseMillis, operationSignal(options)),
+    );
+  }
+
+  ack(
+    id: MessageId,
+    token: LeaseToken,
+    options: OperationOptions = {},
+  ): Promise<Ack> {
+    return nativeJson(() =>
+      this.nativeClient.queueAck(this.openHandle(), id, token, operationSignal(options)),
+    );
+  }
+
+  len(options: OperationOptions = {}): Promise<number> {
+    return nativeJson(() => this.nativeClient.queueLen(this.openHandle(), operationSignal(options)));
+  }
+
+  isEmpty(options: OperationOptions = {}): Promise<boolean> {
+    return nativeJson(() =>
+      this.nativeClient.queueIsEmpty(this.openHandle(), operationSignal(options)),
+    );
   }
 
   private openHandle(): number {
