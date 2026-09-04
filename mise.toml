@@ -60,7 +60,9 @@ run = "cargo deny check"
 
 [tasks.package]
 description = "Validate publishable crate packages"
-run = "cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked --allow-dirty"
+# Workspace compilation is covered by lint/test; verification against crates.io
+# cannot resolve same-release cross-crate APIs before their dependencies publish.
+run = "cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked --allow-dirty --no-verify"
 
 [tasks.ci]
 description = "Run the complete validation suite"

@@ -1,7 +1,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use objsds_store::ObjectStore;
+use objsds_store::{Location, ObjectStore, is_path_segment};
 
 use crate::{LogBuilder, MapBuilder};
 
@@ -86,7 +86,9 @@ impl<S> ObjsdsBuilder<S> {
     /// Validates configuration and constructs a client without performing I/O.
     pub fn build(self) -> Result<Objsds<S>, BuildError> {
         let namespace = self.namespace.ok_or(BuildError::MissingNamespace)?;
-        validate_segment(&namespace).map_err(|()| BuildError::InvalidNamespace)?;
+        if !is_path_segment(&namespace) {
+            return Err(BuildError::InvalidNamespace);
+        }
         Ok(Objsds {
             store: Arc::new(self.store.ok_or(BuildError::MissingStore)?),
             namespace,
@@ -94,22 +96,11 @@ impl<S> ObjsdsBuilder<S> {
     }
 }
 
-pub(crate) fn location(
-    namespace: &str,
-    kind: &str,
-    name: &str,
-) -> Result<objsds_store::Location, BuildError> {
-    validate_segment(name).map_err(|()| BuildError::InvalidName)?;
-    objsds_store::Location::new(format!("{namespace}/{kind}/{name}.json"))
-        .map_err(|_| BuildError::InvalidName)
-}
-
-fn validate_segment(value: &str) -> Result<(), ()> {
-    if value.is_empty() || value == "." || value == ".." || value.contains('/') {
-        Err(())
-    } else {
-        Ok(())
+pub(crate) fn location(namespace: &str, kind: &str, name: &str) -> Result<Location, BuildError> {
+    if !is_path_segment(name) {
+        return Err(BuildError::InvalidName);
     }
+    Location::structure(namespace, kind, name).map_err(|_| BuildError::InvalidName)
 }
 
 /// Invalid client or structure configuration.
