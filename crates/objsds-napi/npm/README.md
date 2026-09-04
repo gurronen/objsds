@@ -1,8 +1,7 @@
 # `@objsds/client`
 
-Typed Node.js bindings for [`objsds`](https://github.com/gurronen/objsds).
-The package exposes Map and Log; brokerless queues live in the separate
-Rust `objsds-queue` crate.
+Typed Node.js bindings for [`objsds`](https://github.com/gurronen/objsds),
+including Map, Log, and brokerless Queue structures.
 
 The package requires Node.js 22 or newer. All persistent operations return
 Promises because the underlying Rust API is blocking and executes on native
@@ -36,6 +35,16 @@ const users = await client
 
 await users.insert("alice", { name: "Alice", active: true });
 console.log(await users.get("alice"));
+
+const jobs = await client
+  .queue<User>("jobs", { schema: "user-job-v1" })
+  .openOrCreate();
+await jobs.publish({ name: "Alice", active: true });
+const claim = await jobs.claim(30_000);
+if (claim) {
+  await processUser(claim.value);
+  await jobs.ack(claim.id, claim.leaseToken);
+}
 ```
 
 `Objsds.memory()` creates an in-process store for tests and local use. Handles
@@ -51,10 +60,12 @@ semantics.
 - Each read observes one coherent object version.
 - Mutations make one compare-and-swap attempt. The binding does not retry or
   serialize concurrent calls.
-- A `null` value is distinct from an absent map entry or log record.
-- `Version` and `LogId` are opaque branded strings.
-- Map and Log handles support `close()` and `Symbol.dispose`; otherwise a
-  `FinalizationRegistry` releases their native registry entries after garbage collection.
+- A `null` value is distinct from an absent map entry, log record, or queue claim.
+- `Version`, `LogId`, `MessageId`, and `LeaseToken` are opaque branded strings.
+- Queue delivery is at least once. Claims require a positive integer lease in
+  milliseconds; unacknowledged messages become available after lease expiry.
+- Map, Log, and Queue handles support `close()` and `Symbol.dispose`; otherwise
+  a `FinalizationRegistry` releases their native registry entries after garbage collection.
 
 Expected failures reject with `ObjsdsError`. Its `code` and `details` fields are
 stable for programmatic handling. In particular, `ERR_OBJSDS_CONFLICT` carries
