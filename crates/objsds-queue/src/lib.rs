@@ -19,6 +19,7 @@
 
 use std::fmt;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use objsds_store::{CreateError, Location, ObjectStore, ReplaceError, Version};
@@ -186,7 +187,7 @@ impl<E: std::error::Error + 'static> std::error::Error for Error<E> {
 
 /// Configures and opens one queue.
 pub struct QueueBuilder<S, V, C = SystemClock> {
-    store: S,
+    store: Arc<S>,
     namespace: String,
     name: String,
     schema: Option<String>,
@@ -196,9 +197,12 @@ pub struct QueueBuilder<S, V, C = SystemClock> {
 
 impl<S, V> QueueBuilder<S, V, SystemClock> {
     /// Starts a builder for a queue in `namespace` with `name`.
+    ///
+    /// The builder takes ownership of `store` and shares it with the resulting
+    /// queue through an [`Arc`], so `S` does not need to implement [`Clone`].
     pub fn new(store: S, namespace: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
-            store,
+            store: Arc::new(store),
             namespace: namespace.into(),
             name: name.into(),
             schema: None,
@@ -297,8 +301,11 @@ where
 }
 
 /// A brokerless queue occupying exactly one object.
+///
+/// The object store is retained through an [`Arc`], matching the sharing model
+/// used by other objsds structure handles.
 pub struct Queue<S, V, C = SystemClock> {
-    store: S,
+    store: Arc<S>,
     location: Location,
     schema: String,
     clock: C,
@@ -515,7 +522,6 @@ struct Lease {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use objsds_store_memory::MemoryStore;
