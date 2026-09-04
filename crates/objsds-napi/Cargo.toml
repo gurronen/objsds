@@ -1,0 +1,31 @@
+[package]
+name = "objsds-napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Node-API bindings for objsds"
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+publish = false
+exclude = ["npm"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+napi.workspace = true
+napi-derive.workspace = true
+objsds.workspace = true
+objsds-store.workspace = true
+objsds-store-filesystem.workspace = true
+objsds-store-memory.workspace = true
+objsds-store-s3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true

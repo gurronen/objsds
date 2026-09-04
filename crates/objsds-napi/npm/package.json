@@ -1,0 +1,45 @@
+{
+  "name": "@objsds/client",
+  "version": "0.1.0",
+  "description": "TypeScript bindings for objsds",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@10.9.8",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "*.node"
+  ],
+  "sideEffects": false,
+  "napi": {
+    "binaryName": "objsds-napi"
+  },
+  "scripts": {
+    "build": "npm run build:native && npm run build:typescript",
+    "build:native": "node scripts/build-native.mjs",
+    "build:typescript": "node scripts/build-typescript.mjs",
+    "check": "tsc --noEmit",
+    "pretest": "npm run build:native",
+    "test": "node --import tsx --test test/*.test.ts",
+    "pretest:s3": "npm run build:native",
+    "test:s3": "node --import tsx --test test/s3.test.ts",
+    "test:package": "npm run build && node test/package-smoke.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.4.1",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

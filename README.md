@@ -118,6 +118,7 @@ A storage adapter may have additional internal requirements.
 - `objsds-store-memory`: deterministic in-memory reference/test adapter
 - `objsds-store-filesystem`: persistent blocking local-filesystem adapter
 - `objsds-store-s3`: blocking S3-compatible adapter
+- `objsds-napi`: unpublished Node-API adapter and `@objsds/client` TypeScript package
 - `objsds-tests`: unpublished backend-contract and end-to-end test suite
 
 ## Object-store requirements
@@ -212,6 +213,23 @@ runs; results depend on the machine and object-store environment.
 
 Runnable examples live under `crates/objsds/examples`. Run the persistent local
 example with `cargo run -p objsds --example filesystem`.
+
+## TypeScript
+
+The isolated [`@objsds/client`](crates/objsds-napi/npm) package provides typed
+Map and Log APIs for Node.js 22 or newer. It supports the filesystem,
+S3-compatible, and in-memory stores, preserves explicit conflict behavior, and runs every blocking
+Rust operation away from the JavaScript event-loop thread.
+
+Develop and test the bindings with:
+
+```console
+cd crates/objsds-napi/npm
+npm ci
+npm test
+npm run check
+npm run build
+```
 
 ## Non-goals
 
