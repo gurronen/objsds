@@ -8,12 +8,14 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use napi::bindgen_prelude::{AbortSignal, AsyncTask};
 use napi::{Env, Error as NapiError, Result as NapiResult, Status, Task};
 use napi_derive::napi;
 use objsds::s3::{Credentials, S3Store};
 use objsds::{Error, InsertIfAbsent, Log, Map, Objsds};
+use objsds_queue::{Ack, Error as QueueError, LeaseToken, MessageId, Queue, QueueBuilder};
 use objsds_store::ObjectStore;
 use objsds_store_filesystem::FilesystemStore;
 use objsds_store_memory::MemoryStore;
@@ -24,6 +26,12 @@ enum Client {
     Filesystem(Objsds<FilesystemStore>),
     Memory(Objsds<MemoryStore>),
     S3(Objsds<S3Store>),
+}
+
+enum QueueClient {
+    Filesystem(FilesystemStore, String),
+    Memory(MemoryStore, String),
+    S3(S3Store, String),
 }
 
 trait BoundMap: Send + Sync {
@@ -97,23 +105,78 @@ where
     }
 }
 
+trait BoundQueue: Send + Sync {
+    fn publish_json(&self, value: Value) -> NapiResult<String>;
+    fn claim_json(&self, lease_millis: u64) -> NapiResult<String>;
+    fn ack_json(&self, id: MessageId, token: LeaseToken) -> NapiResult<String>;
+    fn len_json(&self) -> NapiResult<String>;
+    fn is_empty_json(&self) -> NapiResult<String>;
+}
+
+impl<S> BoundQueue for Queue<S, Value>
+where
+    S: ObjectStore + Send + Sync,
+    S::Error: Display,
+{
+    fn publish_json(&self, value: Value) -> NapiResult<String> {
+        json_string(&self.publish(value).map_err(queue_error)?.to_string())
+    }
+
+    fn claim_json(&self, lease_millis: u64) -> NapiResult<String> {
+        let claim = self
+            .claim(Duration::from_millis(lease_millis))
+            .map_err(queue_error)?;
+        optional_json(claim.map(|claim| {
+            json!({
+                "id": claim.id.to_string(),
+                "value": claim.value,
+                "leaseToken": claim.lease_token.to_string(),
+                "attempt": claim.attempt,
+                "leaseExpiresAtMillis": claim.lease_expires_at_millis,
+            })
+        }))
+    }
+
+    fn ack_json(&self, id: MessageId, token: LeaseToken) -> NapiResult<String> {
+        json_string(match self.ack(id, token).map_err(queue_error)? {
+            Ack::Acknowledged => "acknowledged",
+            Ack::NotFound => "notFound",
+            Ack::LeaseMismatch => "leaseMismatch",
+            Ack::LeaseExpired => "leaseExpired",
+        })
+    }
+
+    fn len_json(&self) -> NapiResult<String> {
+        json_string(&self.len().map_err(queue_error)?)
+    }
+
+    fn is_empty_json(&self) -> NapiResult<String> {
+        json_string(&self.is_empty().map_err(queue_error)?)
+    }
+}
+
 type StoredMap = Arc<dyn BoundMap>;
 type StoredLog = Arc<dyn BoundLog>;
+type StoredQueue = Arc<dyn BoundQueue>;
 
 struct State {
     client: Client,
+    queue_client: QueueClient,
     next_handle: AtomicU32,
     maps: Mutex<HashMap<u32, StoredMap>>,
     logs: Mutex<HashMap<u32, StoredLog>>,
+    queues: Mutex<HashMap<u32, StoredQueue>>,
 }
 
 impl State {
-    fn new(client: Client) -> Self {
+    fn new(client: Client, queue_client: QueueClient) -> Self {
         Self {
             client,
+            queue_client,
             next_handle: AtomicU32::new(1),
             maps: Mutex::new(HashMap::new()),
             logs: Mutex::new(HashMap::new()),
+            queues: Mutex::new(HashMap::new()),
         }
     }
 
@@ -131,13 +194,17 @@ pub struct NativeClient {
 /// Constructs an in-memory native client.
 #[napi]
 pub fn memory_client(namespace: String) -> NapiResult<NativeClient> {
+    let store = MemoryStore::default();
     let client = Objsds::builder()
-        .store(MemoryStore::default())
-        .namespace(namespace)
+        .store(store.clone())
+        .namespace(&namespace)
         .build()
         .map_err(configuration_error)?;
     Ok(NativeClient {
-        state: Arc::new(State::new(Client::Memory(client))),
+        state: Arc::new(State::new(
+            Client::Memory(client),
+            QueueClient::Memory(store, namespace),
+        )),
     })
 }
 
@@ -149,12 +216,15 @@ pub fn filesystem_client(namespace: String, root: String) -> NapiResult<NativeCl
         .build()
         .map_err(configuration_error)?;
     let client = Objsds::builder()
-        .store(store)
-        .namespace(namespace)
+        .store(store.clone())
+        .namespace(&namespace)
         .build()
         .map_err(configuration_error)?;
     Ok(NativeClient {
-        state: Arc::new(State::new(Client::Filesystem(client))),
+        state: Arc::new(State::new(
+            Client::Filesystem(client),
+            QueueClient::Filesystem(store, namespace),
+        )),
     })
 }
 
@@ -199,12 +269,15 @@ pub fn s3_client(
     }
     let store = store.build().map_err(configuration_error)?;
     let client = Objsds::builder()
-        .store(store)
-        .namespace(namespace)
+        .store(store.clone())
+        .namespace(&namespace)
         .build()
         .map_err(configuration_error)?;
     Ok(NativeClient {
-        state: Arc::new(State::new(Client::S3(client))),
+        state: Arc::new(State::new(
+            Client::S3(client),
+            QueueClient::S3(store, namespace),
+        )),
     })
 }
 
@@ -435,6 +508,122 @@ impl NativeClient {
         self.task(Operation::LogRecordsAfter { handle, id }, signal)
     }
 
+    /// Creates a queue and returns an opaque native handle encoded as JSON.
+    #[napi(js_name = "queueCreate")]
+    pub fn queue_create(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::QueueLifecycle {
+                lifecycle: Lifecycle::Create,
+                name,
+                schema,
+            },
+            signal,
+        )
+    }
+
+    /// Opens a queue and returns an opaque native handle encoded as JSON.
+    #[napi(js_name = "queueOpen")]
+    pub fn queue_open(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::QueueLifecycle {
+                lifecycle: Lifecycle::Open,
+                name,
+                schema,
+            },
+            signal,
+        )
+    }
+
+    /// Opens or creates a queue and returns an opaque native handle encoded as JSON.
+    #[napi(js_name = "queueOpenOrCreate")]
+    pub fn queue_open_or_create(
+        &self,
+        name: String,
+        schema: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::QueueLifecycle {
+                lifecycle: Lifecycle::OpenOrCreate,
+                name,
+                schema,
+            },
+            signal,
+        )
+    }
+
+    /// Publishes one queue message.
+    #[napi(js_name = "queuePublish")]
+    pub fn queue_publish(
+        &self,
+        handle: u32,
+        value_json: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(Operation::QueuePublish { handle, value_json }, signal)
+    }
+
+    /// Claims the oldest available queue message.
+    #[napi(js_name = "queueClaim")]
+    pub fn queue_claim(
+        &self,
+        handle: u32,
+        lease_millis: i64,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(
+            Operation::QueueClaim {
+                handle,
+                lease_millis,
+            },
+            signal,
+        )
+    }
+
+    /// Acknowledges a claimed queue message.
+    #[napi(js_name = "queueAck")]
+    pub fn queue_ack(
+        &self,
+        handle: u32,
+        id: String,
+        token: String,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(Operation::QueueAck { handle, id, token }, signal)
+    }
+
+    /// Returns the number of unacknowledged queue messages.
+    #[napi(js_name = "queueLen")]
+    pub fn queue_len(&self, handle: u32, signal: Option<AbortSignal>) -> AsyncTask<BindingTask> {
+        self.task(Operation::QueueLen { handle }, signal)
+    }
+
+    /// Returns whether the queue has no unacknowledged messages.
+    #[napi(js_name = "queueIsEmpty")]
+    pub fn queue_is_empty(
+        &self,
+        handle: u32,
+        signal: Option<AbortSignal>,
+    ) -> AsyncTask<BindingTask> {
+        self.task(Operation::QueueIsEmpty { handle }, signal)
+    }
+
+    /// Releases a queue handle from the native registry.
+    #[napi(js_name = "queueRelease")]
+    pub fn queue_release(&self, handle: u32) -> bool {
+        lock(&self.state.queues).remove(&handle).is_some()
+    }
+
     fn task(&self, operation: Operation, signal: Option<AbortSignal>) -> AsyncTask<BindingTask> {
         AsyncTask::with_optional_signal(
             BindingTask {
@@ -523,6 +712,30 @@ enum Operation {
         handle: u32,
         id: String,
     },
+    QueueLifecycle {
+        lifecycle: Lifecycle,
+        name: String,
+        schema: String,
+    },
+    QueuePublish {
+        handle: u32,
+        value_json: String,
+    },
+    QueueClaim {
+        handle: u32,
+        lease_millis: i64,
+    },
+    QueueAck {
+        handle: u32,
+        id: String,
+        token: String,
+    },
+    QueueLen {
+        handle: u32,
+    },
+    QueueIsEmpty {
+        handle: u32,
+    },
 }
 
 fn execute(state: &State, operation: Operation) -> NapiResult<String> {
@@ -576,6 +789,47 @@ fn execute(state: &State, operation: Operation) -> NapiResult<String> {
         Operation::LogRecordsAfter { handle, id } => {
             log(state, handle)?.records_after_json(parse_log_id(&id)?)
         }
+        Operation::QueueLifecycle {
+            lifecycle,
+            name,
+            schema,
+        } => {
+            let handle = state.handle();
+            let queue: StoredQueue = match &state.queue_client {
+                QueueClient::Filesystem(store, namespace) => {
+                    Arc::new(open_queue(store, namespace, lifecycle, name, schema)?)
+                }
+                QueueClient::Memory(store, namespace) => {
+                    Arc::new(open_queue(store, namespace, lifecycle, name, schema)?)
+                }
+                QueueClient::S3(store, namespace) => {
+                    Arc::new(open_queue(store, namespace, lifecycle, name, schema)?)
+                }
+            };
+            lock(&state.queues).insert(handle, queue);
+            json_string(&handle)
+        }
+        Operation::QueuePublish { handle, value_json } => {
+            queue(state, handle)?.publish_json(parse_value(&value_json)?)
+        }
+        Operation::QueueClaim {
+            handle,
+            lease_millis,
+        } => {
+            let lease_millis = u64::try_from(lease_millis).map_err(|_| {
+                binding_error(
+                    "ERR_OBJSDS_INVALID_CONFIGURATION",
+                    "lease duration must be a positive integer number of milliseconds",
+                    json!({}),
+                )
+            })?;
+            queue(state, handle)?.claim_json(lease_millis)
+        }
+        Operation::QueueAck { handle, id, token } => {
+            queue(state, handle)?.ack_json(parse_message_id(&id)?, parse_lease_token(&token)?)
+        }
+        Operation::QueueLen { handle } => queue(state, handle)?.len_json(),
+        Operation::QueueIsEmpty { handle } => queue(state, handle)?.is_empty_json(),
     }
 }
 
@@ -617,6 +871,26 @@ where
     .map_err(operation_error)
 }
 
+fn open_queue<S>(
+    store: &S,
+    namespace: &str,
+    lifecycle: Lifecycle,
+    name: String,
+    schema: String,
+) -> NapiResult<Queue<S, Value>>
+where
+    S: ObjectStore + Clone,
+    S::Error: Display,
+{
+    let builder = QueueBuilder::new(store.clone(), namespace, name).schema(schema);
+    match lifecycle {
+        Lifecycle::Create => builder.create(),
+        Lifecycle::Open => builder.open(),
+        Lifecycle::OpenOrCreate => builder.open_or_create(),
+    }
+    .map_err(queue_error)
+}
+
 fn map(state: &State, handle: u32) -> NapiResult<StoredMap> {
     lock(&state.maps)
         .get(&handle)
@@ -626,6 +900,13 @@ fn map(state: &State, handle: u32) -> NapiResult<StoredMap> {
 
 fn log(state: &State, handle: u32) -> NapiResult<StoredLog> {
     lock(&state.logs)
+        .get(&handle)
+        .map(Arc::clone)
+        .ok_or_else(invalid_handle)
+}
+
+fn queue(state: &State, handle: u32) -> NapiResult<StoredQueue> {
+    lock(&state.queues)
         .get(&handle)
         .map(Arc::clone)
         .ok_or_else(invalid_handle)
@@ -651,6 +932,26 @@ fn parse_log_id(id: &str) -> NapiResult<objsds::LogId> {
     })
 }
 
+fn parse_message_id(id: &str) -> NapiResult<MessageId> {
+    serde_json::from_value(Value::String(id.to_owned())).map_err(|error| {
+        binding_error(
+            "ERR_OBJSDS_INVALID_MESSAGE_ID",
+            &format!("invalid message identifier: {error}"),
+            json!({ "id": id }),
+        )
+    })
+}
+
+fn parse_lease_token(token: &str) -> NapiResult<LeaseToken> {
+    serde_json::from_value(Value::String(token.to_owned())).map_err(|error| {
+        binding_error(
+            "ERR_OBJSDS_INVALID_LEASE_TOKEN",
+            &format!("invalid lease token: {error}"),
+            json!({ "token": token }),
+        )
+    })
+}
+
 fn optional_json<T: serde::Serialize>(value: Option<T>) -> NapiResult<String> {
     match value {
         Some(value) => json_string(&json!({ "found": true, "value": value })),
@@ -666,6 +967,50 @@ fn json_string<T: serde::Serialize + ?Sized>(value: &T) -> NapiResult<String> {
             json!({}),
         )
     })
+}
+
+fn queue_error<E: Display>(error: QueueError<E>) -> NapiError {
+    match error {
+        QueueError::Configuration(error) => configuration_error(error),
+        QueueError::Store(error) => {
+            binding_error("ERR_OBJSDS_STORE", &error.to_string(), json!({}))
+        }
+        QueueError::Document(error) => {
+            binding_error("ERR_OBJSDS_DOCUMENT", &error.to_string(), json!({}))
+        }
+        QueueError::Corrupt(reason) => binding_error("ERR_OBJSDS_DOCUMENT", &reason, json!({})),
+        QueueError::NotFound => binding_error(
+            "ERR_OBJSDS_NOT_FOUND",
+            "data structure does not exist",
+            json!({}),
+        ),
+        QueueError::AlreadyExists(observed) => binding_error(
+            "ERR_OBJSDS_ALREADY_EXISTS",
+            "data structure already exists",
+            json!({ "observedVersion": observed.as_str() }),
+        ),
+        QueueError::Conflict { expected, observed } => binding_error(
+            "ERR_OBJSDS_CONFLICT",
+            "object version conflict",
+            json!({
+                "expectedVersion": expected.as_str(),
+                "observedVersion": observed.as_ref().map(|version| version.as_str()),
+            }),
+        ),
+        QueueError::Incompatible(error) => {
+            binding_error("ERR_OBJSDS_INCOMPATIBLE", &error.to_string(), json!({}))
+        }
+        QueueError::InvalidLeaseDuration => binding_error(
+            "ERR_OBJSDS_INVALID_CONFIGURATION",
+            "invalid lease duration",
+            json!({}),
+        ),
+        QueueError::AttemptOverflow => binding_error(
+            "ERR_OBJSDS_DOCUMENT",
+            "message claim count overflowed",
+            json!({}),
+        ),
+    }
 }
 
 fn operation_error<E: Display>(error: Error<E>) -> NapiError {

@@ -76,10 +76,9 @@ groups.
 ## Queue
 
 The publishable `objsds-queue` crate provides direct `publish`, `claim`, and
-`ack` operations. Queue is not available on the `Objsds` client or in
-`@objsds/client`; use the Rust crate against an `ObjectStore`. A claim grants a time-bounded lease; if it is not
-acknowledged, the message becomes claimable again at the lease deadline. Each
-reclaim receives a new opaque lease token, so an old worker cannot acknowledge
+`ack` operations. Queue is also available through `@objsds/client`. A claim
+grants a time-bounded lease; if it is not acknowledged, the message becomes
+claimable again at the lease deadline. Each reclaim receives a new opaque lease token, so an old worker cannot acknowledge
 a newer claim.
 
 Delivery is **at least once**, not exactly once. Workers must make handlers
@@ -260,10 +259,9 @@ example with `cargo run -p objsds --example filesystem`.
 ## TypeScript
 
 The isolated [`@objsds/client`](crates/objsds-napi/npm) package provides typed
-Map and Log APIs for Node.js 22 or newer. Queue remains Rust-only via
-`objsds-queue`. It supports the filesystem,
-S3-compatible, and in-memory stores, preserves explicit conflict behavior, and runs every blocking
-Rust operation away from the JavaScript event-loop thread.
+Map, Log, and Queue APIs for Node.js 22 or newer. It supports the filesystem,
+S3-compatible, and in-memory stores, preserves explicit conflict behavior, and
+runs every blocking Rust operation away from the JavaScript event-loop thread.
 
 Develop and test the bindings with:
 

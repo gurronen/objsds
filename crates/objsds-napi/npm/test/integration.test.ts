@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { Objsds, ObjsdsError } from "../src/index.js";
+import { Objsds, ObjsdsError, type MessageId } from "../src/index.js";
 
 type User = {
   name: string;
@@ -58,15 +58,18 @@ test("persists filesystem structures across clients", async () => {
   }
 });
 
-test("explicitly releases native Map and Log handles", async () => {
+test("explicitly releases native Map, Log, and Queue handles", async () => {
   const client = Objsds.memory({ namespace: "cleanup" });
   const map = await client.map<number>("counts", { schema: "count-v1" }).create();
   const log = await client.log<number>("events", { schema: "event-v1" }).create();
+  const queue = await client.queue<number>("jobs", { schema: "job-v1" }).create();
 
   map.close();
   map.close();
   log.close();
   log.close();
+  queue.close();
+  queue.close();
 
   await assert.rejects(map.get("total"), (error: unknown) => {
     assert.ok(error instanceof ObjsdsError);
@@ -74,6 +77,11 @@ test("explicitly releases native Map and Log handles", async () => {
     return true;
   });
   await assert.rejects(log.records(), (error: unknown) => {
+    assert.ok(error instanceof ObjsdsError);
+    assert.equal(error.code, "ERR_OBJSDS_INVALID_HANDLE");
+    return true;
+  });
+  await assert.rejects(queue.isEmpty(), (error: unknown) => {
     assert.ok(error instanceof ObjsdsError);
     assert.equal(error.code, "ERR_OBJSDS_INVALID_HANDLE");
     return true;
@@ -98,6 +106,45 @@ test("appends and traverses a typed log", async () => {
   ]);
 });
 
+test("publishes, claims, and acknowledges a typed queue", async () => {
+  const client = Objsds.memory({ namespace: "queues" });
+  const queue = await client.queue<User>("jobs", { schema: "job-v1" }).openOrCreate();
+
+  const id = await queue.publish({ name: "Alice", active: true });
+  assert.equal(typeof id, "string");
+  assert.equal(await queue.len(), 1);
+  assert.equal(await queue.isEmpty(), false);
+
+  const claim = await queue.claim(1_000);
+  assert.ok(claim);
+  assert.equal(claim.id, id);
+  assert.deepEqual(claim.value, { name: "Alice", active: true });
+  assert.equal(claim.attempt, 1);
+  assert.equal(typeof claim.leaseToken, "string");
+  assert.equal(typeof claim.leaseExpiresAtMillis, "number");
+  assert.equal(await queue.claim(1_000), undefined);
+  await assert.rejects(
+    queue.ack("invalid" as MessageId, claim.leaseToken),
+    (error: unknown) => {
+      assert.ok(error instanceof ObjsdsError);
+      assert.equal(error.code, "ERR_OBJSDS_INVALID_MESSAGE_ID");
+      return true;
+    },
+  );
+  assert.equal(await queue.ack(claim.id, claim.leaseToken), "acknowledged");
+  assert.equal(await queue.isEmpty(), true);
+  assert.equal(await queue.ack(claim.id, claim.leaseToken), "notFound");
+});
+
+test("rejects invalid queue leases before native I/O", async () => {
+  const queue = await Objsds.memory({ namespace: "queue-leases" })
+    .queue<number>("jobs", { schema: "job-v1" })
+    .create();
+
+  assert.throws(() => queue.claim(0), /positive safe integer/);
+  assert.throws(() => queue.claim(1.5), /positive safe integer/);
+});
+
 test("supports AbortSignal cancellation for queued native work", async () => {
   const client = Objsds.memory({ namespace: "abort" });
   const map = await client.map<number>("counts", { schema: "count-v1" }).create();
@@ -107,6 +154,10 @@ test("supports AbortSignal cancellation for queued native work", async () => {
   await assert.rejects(map.get("total", { signal: controller.signal }), /abort/i);
   await assert.rejects(
     client.log<number>("events", { schema: "event-v1" }).create({ signal: controller.signal }),
+    /abort/i,
+  );
+  await assert.rejects(
+    client.queue<number>("jobs", { schema: "job-v1" }).create({ signal: controller.signal }),
     /abort/i,
   );
 });
