@@ -32,6 +32,12 @@ not make the underlying request cancellable. It is the smallest adapter that
 preserves the blocking Rust contract while supporting normal JavaScript
 `async`/`await` without freezing timers or unrelated JavaScript work.
 
+napi-rs wires the optional JavaScript `AbortSignal` to each `AsyncTask`.
+Cancellation can reject queued work and suppress delivery of an in-flight
+result, but it cannot interrupt the blocking store call once `compute` starts.
+That call continues in the background, so cancellation of a mutation has an
+ambiguous outcome and callers must read fresh state before deciding to retry.
+
 libuv's pool is process-wide and also serves some filesystem, DNS, and crypto
 work. Applications issuing many long-running calls should bound concurrency.
 A future genuinely async store adapter could instead await non-blocking network

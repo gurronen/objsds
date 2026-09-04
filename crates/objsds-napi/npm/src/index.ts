@@ -71,23 +71,28 @@ export interface StructureOptions {
   schema: string;
 }
 
+export interface OperationOptions {
+  /** Best-effort cancellation. In-flight blocking I/O may continue after rejection. */
+  signal?: AbortSignal;
+}
+
 interface NativeClient {
-  mapCreate(name: string, schema: string): Promise<string>;
-  mapOpen(name: string, schema: string): Promise<string>;
-  mapOpenOrCreate(name: string, schema: string): Promise<string>;
-  mapGet(handle: number, key: string): Promise<string>;
-  mapEntries(handle: number): Promise<string>;
-  mapInsert(handle: number, key: string, valueJson: string): Promise<string>;
-  mapInsertIfAbsent(handle: number, key: string, valueJson: string): Promise<string>;
-  mapRemove(handle: number, key: string): Promise<string>;
+  mapCreate(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  mapOpen(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  mapOpenOrCreate(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  mapGet(handle: number, key: string, signal?: AbortSignal): Promise<string>;
+  mapEntries(handle: number, signal?: AbortSignal): Promise<string>;
+  mapInsert(handle: number, key: string, valueJson: string, signal?: AbortSignal): Promise<string>;
+  mapInsertIfAbsent(handle: number, key: string, valueJson: string, signal?: AbortSignal): Promise<string>;
+  mapRemove(handle: number, key: string, signal?: AbortSignal): Promise<string>;
   mapRelease(handle: number): boolean;
-  logCreate(name: string, schema: string): Promise<string>;
-  logOpen(name: string, schema: string): Promise<string>;
-  logOpenOrCreate(name: string, schema: string): Promise<string>;
-  logAppend(handle: number, valueJson: string): Promise<string>;
-  logGet(handle: number, id: string): Promise<string>;
-  logRecords(handle: number): Promise<string>;
-  logRecordsAfter(handle: number, id: string): Promise<string>;
+  logCreate(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  logOpen(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  logOpenOrCreate(name: string, schema: string, signal?: AbortSignal): Promise<string>;
+  logAppend(handle: number, valueJson: string, signal?: AbortSignal): Promise<string>;
+  logGet(handle: number, id: string, signal?: AbortSignal): Promise<string>;
+  logRecords(handle: number, signal?: AbortSignal): Promise<string>;
+  logRecordsAfter(handle: number, id: string, signal?: AbortSignal): Promise<string>;
   logRelease(handle: number): boolean;
 }
 
@@ -174,20 +179,20 @@ export class MapBuilder<T> {
     private readonly schema: string,
   ) {}
 
-  async create(): Promise<ObjsdsMap<T>> {
-    return this.openWith("mapCreate");
+  async create(options: OperationOptions = {}): Promise<ObjsdsMap<T>> {
+    return this.openWith("mapCreate", options);
   }
 
-  async open(): Promise<ObjsdsMap<T>> {
-    return this.openWith("mapOpen");
+  async open(options: OperationOptions = {}): Promise<ObjsdsMap<T>> {
+    return this.openWith("mapOpen", options);
   }
 
-  async openOrCreate(): Promise<ObjsdsMap<T>> {
-    return this.openWith("mapOpenOrCreate");
+  async openOrCreate(options: OperationOptions = {}): Promise<ObjsdsMap<T>> {
+    return this.openWith("mapOpenOrCreate", options);
   }
 
-  private async openWith(method: "mapCreate" | "mapOpen" | "mapOpenOrCreate") {
-    const handle = await nativeJson<number>(() => this.nativeClient[method](this.name, this.schema));
+  private async openWith(method: "mapCreate" | "mapOpen" | "mapOpenOrCreate", options: OperationOptions) {
+    const handle = await nativeJson<number>(() => this.nativeClient[method](this.name, this.schema, operationSignal(options)));
     return new ObjsdsMap<T>(this.nativeClient, handle);
   }
 }
@@ -213,26 +218,26 @@ export class ObjsdsMap<T> implements Disposable {
     this.close();
   }
 
-  get(key: string): Promise<T | undefined> {
-    return nativeOptional(() => this.nativeClient.mapGet(this.openHandle(), key));
+  get(key: string, options: OperationOptions = {}): Promise<T | undefined> {
+    return nativeOptional(() => this.nativeClient.mapGet(this.openHandle(), key, operationSignal(options)));
   }
 
-  entries(): Promise<Array<[string, T]>> {
-    return nativeJson(() => this.nativeClient.mapEntries(this.openHandle()));
+  entries(options: OperationOptions = {}): Promise<Array<[string, T]>> {
+    return nativeJson(() => this.nativeClient.mapEntries(this.openHandle(), operationSignal(options)));
   }
 
-  async insert(key: string, value: T): Promise<Version> {
+  async insert(key: string, value: T, options: OperationOptions = {}): Promise<Version> {
     const valueJson = jsonValue(value);
-    return nativeJson(() => this.nativeClient.mapInsert(this.openHandle(), key, valueJson));
+    return nativeJson(() => this.nativeClient.mapInsert(this.openHandle(), key, valueJson, operationSignal(options)));
   }
 
-  async insertIfAbsent(key: string, value: T): Promise<InsertIfAbsent<T>> {
+  async insertIfAbsent(key: string, value: T, options: OperationOptions = {}): Promise<InsertIfAbsent<T>> {
     const valueJson = jsonValue(value);
-    return nativeJson(() => this.nativeClient.mapInsertIfAbsent(this.openHandle(), key, valueJson));
+    return nativeJson(() => this.nativeClient.mapInsertIfAbsent(this.openHandle(), key, valueJson, operationSignal(options)));
   }
 
-  remove(key: string): Promise<T | undefined> {
-    return nativeOptional(() => this.nativeClient.mapRemove(this.openHandle(), key));
+  remove(key: string, options: OperationOptions = {}): Promise<T | undefined> {
+    return nativeOptional(() => this.nativeClient.mapRemove(this.openHandle(), key, operationSignal(options)));
   }
 
   private openHandle(): number {
@@ -248,20 +253,20 @@ export class LogBuilder<T> {
     private readonly schema: string,
   ) {}
 
-  async create(): Promise<ObjsdsLog<T>> {
-    return this.openWith("logCreate");
+  async create(options: OperationOptions = {}): Promise<ObjsdsLog<T>> {
+    return this.openWith("logCreate", options);
   }
 
-  async open(): Promise<ObjsdsLog<T>> {
-    return this.openWith("logOpen");
+  async open(options: OperationOptions = {}): Promise<ObjsdsLog<T>> {
+    return this.openWith("logOpen", options);
   }
 
-  async openOrCreate(): Promise<ObjsdsLog<T>> {
-    return this.openWith("logOpenOrCreate");
+  async openOrCreate(options: OperationOptions = {}): Promise<ObjsdsLog<T>> {
+    return this.openWith("logOpenOrCreate", options);
   }
 
-  private async openWith(method: "logCreate" | "logOpen" | "logOpenOrCreate") {
-    const handle = await nativeJson<number>(() => this.nativeClient[method](this.name, this.schema));
+  private async openWith(method: "logCreate" | "logOpen" | "logOpenOrCreate", options: OperationOptions) {
+    const handle = await nativeJson<number>(() => this.nativeClient[method](this.name, this.schema, operationSignal(options)));
     return new ObjsdsLog<T>(this.nativeClient, handle);
   }
 }
@@ -287,21 +292,21 @@ export class ObjsdsLog<T> implements Disposable {
     this.close();
   }
 
-  async append(value: T): Promise<LogId> {
+  async append(value: T, options: OperationOptions = {}): Promise<LogId> {
     const valueJson = jsonValue(value);
-    return nativeJson(() => this.nativeClient.logAppend(this.openHandle(), valueJson));
+    return nativeJson(() => this.nativeClient.logAppend(this.openHandle(), valueJson, operationSignal(options)));
   }
 
-  get(id: LogId): Promise<LogRecord<T> | undefined> {
-    return nativeOptional(() => this.nativeClient.logGet(this.openHandle(), id));
+  get(id: LogId, options: OperationOptions = {}): Promise<LogRecord<T> | undefined> {
+    return nativeOptional(() => this.nativeClient.logGet(this.openHandle(), id, operationSignal(options)));
   }
 
-  records(): Promise<Array<LogRecord<T>>> {
-    return nativeJson(() => this.nativeClient.logRecords(this.openHandle()));
+  records(options: OperationOptions = {}): Promise<Array<LogRecord<T>>> {
+    return nativeJson(() => this.nativeClient.logRecords(this.openHandle(), operationSignal(options)));
   }
 
-  recordsAfter(id: LogId): Promise<Array<LogRecord<T>>> {
-    return nativeJson(() => this.nativeClient.logRecordsAfter(this.openHandle(), id));
+  recordsAfter(id: LogId, options: OperationOptions = {}): Promise<Array<LogRecord<T>>> {
+    return nativeJson(() => this.nativeClient.logRecordsAfter(this.openHandle(), id, operationSignal(options)));
   }
 
   private openHandle(): number {
@@ -356,6 +361,11 @@ function validateJson(value: unknown, ancestors: WeakSet<object>): void {
     validateJson(child, ancestors);
   }
   ancestors.delete(value);
+}
+
+function operationSignal(options: OperationOptions): AbortSignal | undefined {
+  options.signal?.throwIfAborted();
+  return options.signal;
 }
 
 async function nativeOptional<T>(operation: () => Promise<string>): Promise<T | undefined> {
