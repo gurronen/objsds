@@ -221,17 +221,27 @@ publish/claim/ack and lease reclaim, conditional creation, and stale-version
 conflicts exclusively through public crate APIs.
 It is separate from `mise run ci` because it requires a local RustFS service.
 
-### RustFS CAS contention evaluation
+### RustFS performance evaluation
 
-`mise run test:perf` starts RustFS, then concurrently attempts writes to one
-shared Map and one shared Log without retrying conflicts or introducing a
-broker. The output is one stable, key-value line per structure containing
-attempted operations, successes, CAS conflicts, elapsed time, operation
+`mise run test:perf` starts RustFS and runs both CAS contention and Queue
+work-item throughput evaluations. The contention evaluation concurrently
+attempts writes to one shared Map and one shared Log without retrying conflicts
+or introducing a broker. Its output is one stable, key-value line per structure
+containing attempted operations, successes, CAS conflicts, elapsed time, operation
 throughput, and conflict percentage. `attempt_ops_per_sec` measures complete
 `Map::insert` or `Log::append` attempts, not individual HTTP requests.
 
-The defaults are 8 workers and 25 operations per worker. Override them to make
-repeatable comparisons with:
+The Queue evaluation prepublishes work outside the timed interval, then measures
+complete claim-and-ack work items against one shared queue. Benchmark workers
+explicitly retry CAS conflicts; the Queue API itself still does not retry. Its
+stable output reports clients, items, completed items, elapsed milliseconds,
+work items per second, CAS conflicts, and transient responses. See the
+[one-off RustFS Queue report](QUEUE_PERFORMANCE.md) for a 1–50 client matrix.
+The default is 100 work items and 8 clients. Override it with
+`OBJSDS_QUEUE_PERF_ITEMS` and `OBJSDS_QUEUE_PERF_CLIENTS`.
+
+The Map and Log defaults are 8 workers and 25 operations per worker. Override
+them to make repeatable comparisons with:
 
 ```console
 OBJSDS_PERF_WORKERS=16 OBJSDS_PERF_OPERATIONS_PER_WORKER=100 mise run test:perf
