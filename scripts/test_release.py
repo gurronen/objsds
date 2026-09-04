@@ -21,6 +21,7 @@ class ReleaseTests(unittest.TestCase):
                 "objsds-store-memory",
                 "objsds-store-s3",
                 "objsds",
+                "objsds-queue",
             ),
         )
 
@@ -39,11 +40,17 @@ class ReleaseTests(unittest.TestCase):
 
         self.assertEqual(
             [command[-1] for command in commands],
-            ["objsds-store-filesystem", "objsds-store-memory", "objsds-store-s3", "objsds"],
+            [
+                "objsds-store-filesystem",
+                "objsds-store-memory",
+                "objsds-store-s3",
+                "objsds",
+                "objsds-queue",
+            ],
         )
 
     def test_publish_rechecks_registry_after_failure(self) -> None:
-        statuses = iter((404, 200, 200, 200, 200, 200))
+        statuses = iter((404, 200, 200, 200, 200, 200, 200))
         attempts = []
 
         def fail_once(command) -> str:

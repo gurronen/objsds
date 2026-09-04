@@ -1,0 +1,24 @@
+[package]
+name = "objsds-queue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Brokerless single-object work queues for objsds"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/objsds-queue"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+objsds-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+objsds-store-memory.workspace = true

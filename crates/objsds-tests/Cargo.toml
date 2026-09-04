@@ -22,6 +22,7 @@ required-features = ["rustfs-e2e"]
 
 [dependencies]
 objsds.workspace = true
+objsds-queue.workspace = true
 objsds-store.workspace = true
 objsds-store-memory.workspace = true
 objsds-store-filesystem.workspace = true
