@@ -1,6 +1,8 @@
 # `@objsds/client`
 
 Typed Node.js bindings for [`objsds`](https://github.com/gurronen/objsds).
+The package exposes Map and Log; brokerless queues live in the separate
+Rust `objsds-queue` crate.
 
 The package requires Node.js 22 or newer. All persistent operations return
 Promises because the underlying Rust API is blocking and executes on native
