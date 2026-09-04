@@ -17,7 +17,7 @@ mod store;
 mod version;
 
 pub use error::{CreateError, ReplaceError};
-pub use location::{InvalidLocation, Location};
+pub use location::{InvalidLocation, Location, is_path_segment};
 pub use object::Object;
 pub use store::ObjectStore;
 pub use version::Version;
