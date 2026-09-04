@@ -160,7 +160,7 @@ def publish(
                 print(f"Would publish {crate} {version}")
                 break
             try:
-                runner(("cargo", "publish", "--locked", "-p", crate))
+                runner(("cargo", "publish", "--locked", "--allow-dirty", "-p", crate))
                 break
             except subprocess.CalledProcessError:
                 if attempt == attempts:
