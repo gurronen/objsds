@@ -927,6 +927,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "objsds-queue"
+version = "0.1.0"
+dependencies = [
+ "objsds-store",
+ "objsds-store-memory",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "objsds-store"
 version = "0.1.0"
 
@@ -959,6 +970,7 @@ name = "objsds-tests"
 version = "0.1.0"
 dependencies = [
  "objsds",
+ "objsds-queue",
  "objsds-store",
  "objsds-store-filesystem",
  "objsds-store-memory",

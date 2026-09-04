@@ -20,6 +20,7 @@ CRATES = (
     "objsds-store-memory",
     "objsds-store-s3",
     "objsds",
+    "objsds-queue",
 )
 SEMVER = re.compile(
     r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/objsds",
+    "crates/objsds-queue",
     "crates/objsds-store",
     "crates/objsds-store-memory",
     "crates/objsds-store-filesystem",
@@ -27,6 +28,7 @@ unwrap_used = "warn"
 
 [workspace.dependencies]
 objsds = { version = "0.1.0", path = "crates/objsds" }
+objsds-queue = { version = "0.1.0", path = "crates/objsds-queue" }
 objsds-store = { version = "0.1.0", path = "crates/objsds-store" }
 objsds-store-memory = { version = "0.1.0", path = "crates/objsds-store-memory" }
 objsds-store-filesystem = { version = "0.1.0", path = "crates/objsds-store-filesystem" }

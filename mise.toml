@@ -43,7 +43,7 @@ description = "Start RustFS with Pitchfork and run the S3 end-to-end test"
 run = "pitchfork start rustfs && OBJSDS_RUSTFS_E2E=1 cargo test -p objsds-tests --features rustfs-e2e --test rustfs -- --nocapture"
 
 [tasks."test:perf"]
-description = "Measure RustFS Map and Log throughput under CAS contention"
+description = "Measure RustFS Map/Log contention and Queue work-item throughput"
 run = "pitchfork start rustfs && OBJSDS_RUSTFS_E2E=1 cargo test -p objsds-tests --features rustfs-e2e --test rustfs_perf -- --ignored --nocapture"
 
 [tasks.fmt]

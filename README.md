@@ -1,7 +1,7 @@
 # objsds
 
-Blocking, leaderless `Map` and append-only `Log` data structures for object
-storage.
+Blocking, leaderless `Map` and append-only `Log` data structures, plus a
+brokerless single-object work queue, for object storage.
 
 `objsds` is a small Rust workspace for applications that need coherent shared
 state without operating a database or coordination service. Each data structure
@@ -31,6 +31,7 @@ Each data-structure instance occupies exactly one object:
 ```text
 <namespace>/maps/<name>.json
 <namespace>/logs/<name>.json
+<namespace>/queues/<name>.json
 ```
 
 The object contains both metadata and every record. A mutation reads and
@@ -71,6 +72,33 @@ Records receive opaque UUIDv7 identifiers. IDs are unique and sortable, but do
 not promise exact wall-clock ordering between concurrent writers. The initial
 Log has no mutation, deletion, truncation, contiguous offsets, or consumer
 groups.
+
+## Queue
+
+The publishable `objsds-queue` crate provides direct `publish`, `claim`, and
+`ack` operations. A claim grants a time-bounded lease; if it is not
+acknowledged, the message becomes claimable again at the lease deadline. Each
+reclaim receives a new opaque lease token, so an old worker cannot acknowledge
+a newer claim.
+
+Delivery is **at least once**, not exactly once. Workers must make handlers
+idempotent because processing may complete before a failed acknowledgement and
+because lease expiry permits concurrent duplicate processing. Lease safety
+across processes depends on clock synchronization. There is no broker,
+consumer group, group commit, long polling, automatic CAS retry, or dead-letter
+queue. Like Map and Log, the complete queue is one bounded JSON object and each
+mutation rewrites it with compare-and-swap.
+
+```rust,ignore
+let queue = objsds_queue::QueueBuilder::<_, Job>::new(store, "production", "jobs")
+    .schema("job-json-v1")
+    .open_or_create()?;
+let id = queue.publish(job)?;
+if let Some(claim) = queue.claim(std::time::Duration::from_secs(30))? {
+    process(&claim.value)?;
+    queue.ack(id, claim.lease_token)?;
+}
+```
 
 ## Lifecycle
 
@@ -114,6 +142,7 @@ A storage adapter may have additional internal requirements.
 ## Crates
 
 - `objsds`: `Map`, `Log`, lifecycle APIs, JSON documents, and public errors
+- `objsds-queue`: brokerless single-object queue with leased at-least-once delivery
 - `objsds-store`: the minimal blocking object-store capability interface
 - `objsds-store-memory`: deterministic in-memory reference/test adapter
 - `objsds-store-filesystem`: persistent blocking local-filesystem adapter
@@ -187,21 +216,32 @@ The available validation tasks are:
 ### S3 end-to-end tests
 
 `mise run test:e2e` starts the RustFS daemon defined in `pitchfork.toml`, creates
-the test bucket if needed, and exercises lifecycle, Map, Log, conditional
-creation, and stale-version conflicts exclusively through public crate APIs.
+the test bucket if needed, and exercises lifecycle, Map, Log, Queue
+publish/claim/ack and lease reclaim, conditional creation, and stale-version
+conflicts exclusively through public crate APIs.
 It is separate from `mise run ci` because it requires a local RustFS service.
 
-### RustFS CAS contention evaluation
+### RustFS performance evaluation
 
-`mise run test:perf` starts RustFS, then concurrently attempts writes to one
-shared Map and one shared Log without retrying conflicts or introducing a
-broker. The output is one stable, key-value line per structure containing
-attempted operations, successes, CAS conflicts, elapsed time, operation
+`mise run test:perf` starts RustFS and runs both CAS contention and Queue
+work-item throughput evaluations. The contention evaluation concurrently
+attempts writes to one shared Map and one shared Log without retrying conflicts
+or introducing a broker. Its output is one stable, key-value line per structure
+containing attempted operations, successes, CAS conflicts, elapsed time, operation
 throughput, and conflict percentage. `attempt_ops_per_sec` measures complete
 `Map::insert` or `Log::append` attempts, not individual HTTP requests.
 
-The defaults are 8 workers and 25 operations per worker. Override them to make
-repeatable comparisons with:
+The Queue evaluation prepublishes work outside the timed interval, then measures
+complete claim-and-ack work items against one shared queue. Benchmark workers
+explicitly retry CAS conflicts; the Queue API itself still does not retry. Its
+stable output reports clients, items, completed items, elapsed milliseconds,
+work items per second, CAS conflicts, and transient responses. See the
+[one-off RustFS Queue report](QUEUE_PERFORMANCE.md) for a 1–50 client matrix.
+The default is 100 work items and 8 clients. Override it with
+`OBJSDS_QUEUE_PERF_ITEMS` and `OBJSDS_QUEUE_PERF_CLIENTS`.
+
+The Map and Log defaults are 8 workers and 25 operations per worker. Override
+them to make repeatable comparisons with:
 
 ```console
 OBJSDS_PERF_WORKERS=16 OBJSDS_PERF_OPERATIONS_PER_WORKER=100 mise run test:perf
