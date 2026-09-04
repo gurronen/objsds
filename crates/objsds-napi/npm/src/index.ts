@@ -80,6 +80,7 @@ interface NativeClient {
   mapInsert(handle: number, key: string, valueJson: string): Promise<string>;
   mapInsertIfAbsent(handle: number, key: string, valueJson: string): Promise<string>;
   mapRemove(handle: number, key: string): Promise<string>;
+  mapRelease(handle: number): boolean;
   logCreate(name: string, schema: string): Promise<string>;
   logOpen(name: string, schema: string): Promise<string>;
   logOpenOrCreate(name: string, schema: string): Promise<string>;
@@ -87,7 +88,15 @@ interface NativeClient {
   logGet(handle: number, id: string): Promise<string>;
   logRecords(handle: number): Promise<string>;
   logRecordsAfter(handle: number, id: string): Promise<string>;
+  logRelease(handle: number): boolean;
 }
+
+type NativeHandle = { nativeClient: NativeClient; handle: number; kind: "map" | "log" };
+
+const nativeHandleFinalizer = new FinalizationRegistry<NativeHandle>(({ nativeClient, handle, kind }) => {
+  if (kind === "map") nativeClient.mapRelease(handle);
+  else nativeClient.logRelease(handle);
+});
 
 interface NativeBinding {
   filesystemClient(namespace: string, root: string): NativeClient;
@@ -183,32 +192,52 @@ export class MapBuilder<T> {
   }
 }
 
-export class ObjsdsMap<T> {
+export class ObjsdsMap<T> implements Disposable {
+  private closed = false;
+
   constructor(
     private readonly nativeClient: NativeClient,
     private readonly handle: number,
-  ) {}
+  ) {
+    nativeHandleFinalizer.register(this, { nativeClient, handle, kind: "map" }, this);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    nativeHandleFinalizer.unregister(this);
+    this.nativeClient.mapRelease(this.handle);
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
+  }
 
   get(key: string): Promise<T | undefined> {
-    return nativeOptional(() => this.nativeClient.mapGet(this.handle, key));
+    return nativeOptional(() => this.nativeClient.mapGet(this.openHandle(), key));
   }
 
   entries(): Promise<Array<[string, T]>> {
-    return nativeJson(() => this.nativeClient.mapEntries(this.handle));
+    return nativeJson(() => this.nativeClient.mapEntries(this.openHandle()));
   }
 
   async insert(key: string, value: T): Promise<Version> {
     const valueJson = jsonValue(value);
-    return nativeJson(() => this.nativeClient.mapInsert(this.handle, key, valueJson));
+    return nativeJson(() => this.nativeClient.mapInsert(this.openHandle(), key, valueJson));
   }
 
   async insertIfAbsent(key: string, value: T): Promise<InsertIfAbsent<T>> {
     const valueJson = jsonValue(value);
-    return nativeJson(() => this.nativeClient.mapInsertIfAbsent(this.handle, key, valueJson));
+    return nativeJson(() => this.nativeClient.mapInsertIfAbsent(this.openHandle(), key, valueJson));
   }
 
   remove(key: string): Promise<T | undefined> {
-    return nativeOptional(() => this.nativeClient.mapRemove(this.handle, key));
+    return nativeOptional(() => this.nativeClient.mapRemove(this.openHandle(), key));
+  }
+
+  private openHandle(): number {
+    if (this.closed) throw closedHandleError();
+    return this.handle;
   }
 }
 
@@ -237,28 +266,52 @@ export class LogBuilder<T> {
   }
 }
 
-export class ObjsdsLog<T> {
+export class ObjsdsLog<T> implements Disposable {
+  private closed = false;
+
   constructor(
     private readonly nativeClient: NativeClient,
     private readonly handle: number,
-  ) {}
+  ) {
+    nativeHandleFinalizer.register(this, { nativeClient, handle, kind: "log" }, this);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    nativeHandleFinalizer.unregister(this);
+    this.nativeClient.logRelease(this.handle);
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
+  }
 
   async append(value: T): Promise<LogId> {
     const valueJson = jsonValue(value);
-    return nativeJson(() => this.nativeClient.logAppend(this.handle, valueJson));
+    return nativeJson(() => this.nativeClient.logAppend(this.openHandle(), valueJson));
   }
 
   get(id: LogId): Promise<LogRecord<T> | undefined> {
-    return nativeOptional(() => this.nativeClient.logGet(this.handle, id));
+    return nativeOptional(() => this.nativeClient.logGet(this.openHandle(), id));
   }
 
   records(): Promise<Array<LogRecord<T>>> {
-    return nativeJson(() => this.nativeClient.logRecords(this.handle));
+    return nativeJson(() => this.nativeClient.logRecords(this.openHandle()));
   }
 
   recordsAfter(id: LogId): Promise<Array<LogRecord<T>>> {
-    return nativeJson(() => this.nativeClient.logRecordsAfter(this.handle, id));
+    return nativeJson(() => this.nativeClient.logRecordsAfter(this.openHandle(), id));
   }
+
+  private openHandle(): number {
+    if (this.closed) throw closedHandleError();
+    return this.handle;
+  }
+}
+
+function closedHandleError(): ObjsdsError {
+  return new ObjsdsError("ERR_OBJSDS_INVALID_HANDLE", "data-structure handle is closed");
 }
 
 function validateStructure(name: string, options: StructureOptions): void {

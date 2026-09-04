@@ -288,6 +288,12 @@ impl NativeClient {
         self.task(Operation::MapRemove { handle, key })
     }
 
+    /// Releases a map handle from the native registry.
+    #[napi(js_name = "mapRelease")]
+    pub fn map_release(&self, handle: u32) -> bool {
+        lock(&self.state.maps).remove(&handle).is_some()
+    }
+
     /// Creates a log and returns an opaque native handle encoded as JSON.
     #[napi(js_name = "logCreate")]
     pub fn log_create(&self, name: String, schema: String) -> AsyncTask<BindingTask> {
@@ -316,6 +322,12 @@ impl NativeClient {
             name,
             schema,
         })
+    }
+
+    /// Releases a log handle from the native registry.
+    #[napi(js_name = "logRelease")]
+    pub fn log_release(&self, handle: u32) -> bool {
+        lock(&self.state.logs).remove(&handle).is_some()
     }
 
     /// Appends one log value.

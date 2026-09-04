@@ -51,6 +51,8 @@ semantics.
   serialize concurrent calls.
 - A `null` value is distinct from an absent map entry or log record.
 - `Version` and `LogId` are opaque branded strings.
+- Map and Log handles support `close()` and `Symbol.dispose`; otherwise a
+  `FinalizationRegistry` releases their native registry entries after garbage collection.
 
 Expected failures reject with `ObjsdsError`. Its `code` and `details` fields are
 stable for programmatic handling. In particular, `ERR_OBJSDS_CONFLICT` carries
