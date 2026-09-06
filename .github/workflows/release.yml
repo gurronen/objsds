@@ -27,7 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -45,15 +45,10 @@ jobs:
             exit 1
           fi
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: jdx/mise-action@v4
         with:
-          components: clippy,rustfmt
+          install_args: rust
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: crates/objsds-napi/npm/package-lock.json
 
       - name: Resolve release version
         id: version
@@ -62,30 +57,17 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$VERSION_OVERRIDE" ]]; then
-            version="$(python3 scripts/release.py resolve --version "$VERSION_OVERRIDE")"
+            version="$(mise run release:resolve --version "$VERSION_OVERRIDE")"
           else
-            version="$(python3 scripts/release.py resolve)"
+            version="$(mise run release:resolve)"
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Resolved release version ${version}"
 
-      - name: Stage release versions
+      - name: Stage and validate complete workspace
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: python3 scripts/release.py prepare --version "$VERSION"
-
-      - name: Validate complete workspace
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          python3 -m unittest discover -s scripts -p 'test_*.py'
-          python3 scripts/release.py validate --version "$VERSION"
-          cargo fmt --all -- --check
-          cargo clippy --workspace --all-targets --all-features -- -D warnings
-          cargo test --workspace --all-targets
-          # Workspace compilation is covered above. Dependency tarballs are not
-          # on crates.io yet, so only validate package assembly at this stage.
-          cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked --allow-dirty --no-verify
+        run: mise run release:validate
 
   native-build:
     needs: version
@@ -123,29 +105,19 @@ jobs:
             zig: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
-          targets: ${{ matrix.target }}
+          install_args: ${{ matrix.zig && 'node rust zig@0.15.2' || 'node rust' }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: crates/objsds-napi/npm/package-lock.json
-      - name: Install Zig
-        if: matrix.zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.15.2
-      - run: npm ci
-        working-directory: crates/objsds-napi/npm
       - name: Build native artifact
-        working-directory: crates/objsds-napi/npm
-        run: npm run build:native -- --target ${{ matrix.target }} ${{ matrix.flags }}
-      - uses: actions/upload-artifact@v4
+        run: mise run ${{ matrix.zig && 'build:native:zig' || 'build:native' }}
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_FLAGS: ${{ matrix.flags }}
+      - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.target }}
           path: crates/objsds-napi/npm/objsds-napi.*.node
@@ -154,38 +126,21 @@ jobs:
   package-npm:
     needs: [version, native-build]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: crates/objsds-napi/npm
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: crates/objsds-napi/npm/package-lock.json
-      - uses: actions/download-artifact@v4
+          install_args: node
+      - uses: actions/download-artifact@v8
         with:
           pattern: native-*
           path: crates/objsds-napi/npm
           merge-multiple: true
-      - name: Stage npm version
-        working-directory: ${{ github.workspace }}
+      - name: Stage and pack npm package
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: python3 scripts/release.py prepare --version "$VERSION"
-      - run: npm ci
-      - run: npm run check
-      - run: npm run build:typescript
-      - run: npm run test:release
-      - run: node test/package-smoke.mjs && node test/install-tarball.mjs
-      - name: Validate assembled npm package
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: npm run release:validate -- "$VERSION"
-      - name: Pack exact release tarball
-        run: mkdir -p release && npm pack --pack-destination release
-      - uses: actions/upload-artifact@v4
+        run: mise run release:package-npm
+      - uses: actions/upload-artifact@v7
         with:
           name: npm-package
           path: crates/objsds-napi/npm/release/*.tgz
@@ -197,19 +152,15 @@ jobs:
     runs-on: ubuntu-latest
     environment: crates-io
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Stage Cargo release version
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          python3 scripts/release.py prepare --version "$VERSION"
-          cargo check --workspace
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: rust
       - name: Publish crates
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ needs.version.outputs.version }}
-        run: python3 scripts/release.py publish --version "$VERSION"
+        run: mise run release:publish-crates
 
   publish-npm:
     if: inputs.publish
@@ -220,25 +171,23 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v4
+          install_args: node
+      - uses: actions/download-artifact@v8
         with:
           name: npm-package
           path: release
+      - name: Configure npm registry authentication
+        run: |
+          echo 'registry=https://registry.npmjs.org' >> "$HOME/.npmrc"
+          echo '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' >> "$HOME/.npmrc"
       - name: Publish @objsds/client
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          if npm view "@objsds/client@${VERSION}" version >/dev/null 2>&1; then
-            echo "@objsds/client ${VERSION} is already published; skipping"
-          else
-            npm publish ./release/*.tgz --access public --provenance
-          fi
+        run: mise run release:publish-npm
 
   github-release:
     if: inputs.publish
@@ -247,12 +196,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: native-*
           path: release-assets
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: npm-package
           path: release-assets

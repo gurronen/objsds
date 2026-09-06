@@ -14,9 +14,17 @@ mise install
 ```
 
 Using mise is important: it gives contributors and CI compatible versions of
-Rust, hk, cargo-deny, Pitchfork, and the other tools used to validate the
-workspace. Prefer `mise run <task>` over invoking a locally installed
+Rust, Node.js, hk, cargo-deny, Pitchfork, and the other tools used to validate
+the workspace. Prefer `mise run <task>` over invoking a locally installed
 alternative so that results remain reproducible.
+
+GitHub Actions uses `jdx/mise-action` and these same tasks. Workflow files own
+GitHub-specific concerns such as triggers, job matrices, services, permissions,
+credentials, checkout, caches, and artifacts; `mise.toml` owns tool versions
+and reusable build, test, package, and release commands. CI jobs pass matrix
+values through task environment variables such as `BUILD_TARGET` and
+`BUILD_FLAGS`. Keep reusable command changes in mise rather than duplicating
+shell sequences in workflows.
 
 Before opening a pull request, run:
 

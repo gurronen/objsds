@@ -3,7 +3,7 @@ hk = "latest"
 pkl = "latest"
 pitchfork = "latest"
 node = "22"
-rust = "stable"
+rust = { version = "stable", components = ["clippy", "rustfmt"] }
 typos = "latest"
 "cargo:cargo-deny" = "latest"
 
@@ -11,7 +11,8 @@ typos = "latest"
 HK_MISE = 1
 
 [hooks]
-postinstall = "hk install --mise"
+# CI installs only the tools each job needs; configure hk when it is included.
+postinstall = "if command -v hk >/dev/null 2>&1; then hk install --mise; fi"
 
 [tasks.pre-commit]
 description = "Run pre-commit checks"
@@ -32,7 +33,7 @@ run = "cargo test --all-targets"
 [tasks."test:typescript"]
 description = "Install, typecheck, and test the TypeScript bindings"
 dir = "crates/objsds-napi/npm"
-run = "npm ci && npm run check && npm test"
+run = ["npm ci", "npm run check", "npm test", "npm run test:release", "npm run test:package", "npm pack --dry-run"]
 
 [tasks."test:typescript:s3"]
 description = "Run the TypeScript S3 integration test against RustFS"
@@ -62,8 +63,67 @@ run = "cargo deny check"
 description = "Validate publishable crate packages"
 # Workspace compilation is covered by lint/test; verification against crates.io
 # cannot resolve same-release cross-crate APIs before their dependencies publish.
-run = "cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked --allow-dirty --no-verify"
+run = ["cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked --allow-dirty --no-verify", '''python3 -c "import shutil; shutil.rmtree('target/package', ignore_errors=True)"''']
 
 [tasks.ci]
 description = "Run the complete validation suite"
-depends = ["fmt", "lint", "test", "deny", "package"]
+depends = ["ci:quality", "test:typescript"]
+
+[tasks.doc]
+description = "Build documentation with warnings denied"
+env.RUSTDOCFLAGS = "-D warnings"
+run = "cargo doc --workspace --no-deps"
+
+[tasks."ci:quality"]
+description = "Run Rust quality checks, then package after build validation"
+run = ["mise run fmt", "mise run lint", "mise run test:rust", "mise run doc", "mise run deny", "mise run package"]
+
+[tasks."ci:msrv"]
+description = "Check the minimum supported Rust version"
+tools.rust = "1.96"
+run = "cargo check --workspace --all-targets"
+
+[tasks."ci:s3"]
+description = "Test against an already running RustFS service"
+env.OBJSDS_RUSTFS_E2E = "1"
+run = ["npm --prefix crates/objsds-napi/npm ci", "cargo test -p objsds-tests --features rustfs-e2e --test rustfs -- --nocapture", "npm --prefix crates/objsds-napi/npm run test:s3"]
+
+[tasks."build:native"]
+description = "Build a native binding for BUILD_TARGET with optional BUILD_FLAGS"
+run = ["rustup target add {{env.BUILD_TARGET}}", "npm --prefix crates/objsds-napi/npm ci", "npm --prefix crates/objsds-napi/npm run build:native -- --target {{env.BUILD_TARGET}} {{env.BUILD_FLAGS | default(value='')}}"]
+
+[tasks."build:native:zig"]
+description = "Build a cross-compiled native binding with the pinned Zig toolchain"
+tools.zig = "0.15.2"
+run = "mise run build:native"
+
+[tasks."release:resolve"]
+description = "Resolve a release version (accepts --version)"
+run = "python3 scripts/release.py resolve"
+
+[tasks."release:prepare"]
+description = "Stage VERSION in Cargo and npm manifests"
+run = 'python3 scripts/release.py prepare --version "{{env.VERSION}}"'
+
+[tasks."release:validate"]
+description = "Stage and validate release manifests and the complete workspace"
+run = ["mise run release:prepare", "python3 -m unittest discover -s scripts -p 'test_*.py'", 'python3 scripts/release.py validate --version "{{env.VERSION}}"', "cargo fmt --all -- --check", "cargo clippy --workspace --all-targets --all-features -- -D warnings", "cargo test --workspace --all-targets", "mise run package"]
+
+[tasks."release:package-npm"]
+description = "Stage, validate, and pack the assembled native npm release"
+run = ["mise run release:prepare", "npm --prefix crates/objsds-napi/npm ci", "npm --prefix crates/objsds-napi/npm run check", "npm --prefix crates/objsds-napi/npm run build:typescript", "npm --prefix crates/objsds-napi/npm run test:release", "node crates/objsds-napi/npm/test/package-smoke.mjs", "node crates/objsds-napi/npm/test/install-tarball.mjs", 'npm --prefix crates/objsds-napi/npm run release:validate -- "{{env.VERSION}}"', "mkdir -p crates/objsds-napi/npm/release", "npm --prefix crates/objsds-napi/npm pack --pack-destination release"]
+
+[tasks."release:publish-crates"]
+description = "Publish staged crates in dependency order"
+run = ["mise run release:prepare", "cargo check --workspace", 'python3 scripts/release.py publish --version "{{env.VERSION}}"']
+
+[tasks."release:publish-npm"]
+description = "Publish the exact npm tarball unless VERSION is already published"
+run = '''
+set -euo pipefail
+if npm view "@objsds/client@${VERSION}" version >/dev/null 2>&1; then
+  echo "@objsds/client ${VERSION} is already published; skipping"
+else
+  npm publish ./release/*.tgz --access public --provenance
+fi
+'''
