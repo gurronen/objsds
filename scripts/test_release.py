@@ -108,7 +108,11 @@ class ReleaseTests(unittest.TestCase):
             npm.mkdir(parents=True)
             (root / "Cargo.toml").write_text(
                 '[workspace.package]\nversion = "0.1.0"\n\n[workspace.dependencies]\n'
-                'objsds = { version = "0.1.0", path = "crates/objsds" }\n'
+                + "\n".join(
+                    f'{crate} = {{ version = "0.1.0", path = "crates/{crate}" }}'
+                    for crate in release.WORKSPACE_DEPENDENCIES
+                )
+                + '\nunrelated = { version = "0.1.0" }\n'
             )
             (npm / "package.json").write_text(json.dumps({"version": "0.1.0"}))
             (npm / "package-lock.json").write_text(
@@ -117,7 +121,11 @@ class ReleaseTests(unittest.TestCase):
 
             release.prepare(root, "0.1.1")
 
-            self.assertNotIn('version = "0.1.0"', (root / "Cargo.toml").read_text())
+            cargo = (root / "Cargo.toml").read_text()
+            self.assertIn('version = "0.1.1"', cargo)
+            self.assertIn('objsds = { version = "0.1.1"', cargo)
+            self.assertIn('unrelated = { version = "0.1.0" }', cargo)
+            self.assertNotIn('[workspace.package]\nversion = "0.1.0"', cargo)
             self.assertEqual(json.loads((npm / "package.json").read_text())["version"], "0.1.1")
             self.assertEqual(json.loads((npm / "package-lock.json").read_text())["version"], "0.1.1")
 
