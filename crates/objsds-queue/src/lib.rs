@@ -518,8 +518,10 @@ struct Lease {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::convert::Infallible;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+    use objsds_store::{Object, ObjectStore, ReplaceError};
     use objsds_store_memory::MemoryStore;
 
     use super::*;
@@ -635,5 +637,136 @@ mod tests {
             .expect("claim should succeed")
             .expect("second message should exist");
         assert_eq!((first_claim.id, second_claim.id), (first, second));
+    }
+
+    #[derive(Clone)]
+    struct FailReplaceOnce {
+        inner: MemoryStore,
+        fail_next: Arc<AtomicBool>,
+    }
+
+    impl ObjectStore for FailReplaceOnce {
+        type Error = Infallible;
+
+        fn get(&self, location: &Location) -> Result<Option<Object>, Self::Error> {
+            self.inner.get(location)
+        }
+
+        fn create(
+            &self,
+            location: &Location,
+            bytes: &[u8],
+        ) -> Result<Version, CreateError<Self::Error>> {
+            self.inner.create(location, bytes)
+        }
+
+        fn replace(
+            &self,
+            location: &Location,
+            expected: &Version,
+            bytes: &[u8],
+        ) -> Result<Version, ReplaceError<Self::Error>> {
+            if self.fail_next.swap(false, Ordering::SeqCst) {
+                let observed = self
+                    .inner
+                    .get(location)
+                    .expect("memory get is infallible")
+                    .map(|object| object.version);
+                return Err(ReplaceError::Conflict { observed });
+            }
+            self.inner.replace(location, expected, bytes)
+        }
+    }
+
+    #[test]
+    fn publish_conflict_leaves_queue_unchanged() {
+        let store = FailReplaceOnce {
+            inner: MemoryStore::default(),
+            fail_next: Arc::new(AtomicBool::new(false)),
+        };
+        let queue = QueueBuilder::new(store.clone(), "tests", "jobs")
+            .schema("job-v1")
+            .create()
+            .expect("queue should be created");
+        store.fail_next.store(true, Ordering::SeqCst);
+        assert!(matches!(
+            queue.publish("work".to_owned()),
+            Err(Error::Conflict { .. })
+        ));
+        assert!(queue.is_empty().expect("read should succeed"));
+    }
+
+    #[test]
+    fn open_validates_existing_queue_and_schema() {
+        let store = MemoryStore::default();
+        QueueBuilder::<_, String>::new(store.clone(), "tests", "jobs")
+            .schema("job-v1")
+            .create()
+            .expect("queue should be created");
+        QueueBuilder::<_, String>::new(store.clone(), "tests", "jobs")
+            .schema("job-v1")
+            .open()
+            .expect("existing queue should open");
+        assert!(matches!(
+            QueueBuilder::<_, String>::new(store.clone(), "tests", "jobs")
+                .schema("job-v2")
+                .open(),
+            Err(Error::Incompatible(_))
+        ));
+        assert!(matches!(
+            QueueBuilder::<_, String>::new(store, "tests", "missing")
+                .schema("job-v1")
+                .open(),
+            Err(Error::NotFound)
+        ));
+    }
+
+    #[test]
+    fn open_or_create_is_idempotent() {
+        let store = MemoryStore::default();
+        let created = QueueBuilder::<_, String>::new(store.clone(), "tests", "jobs")
+            .schema("job-v1")
+            .open_or_create()
+            .expect("queue should be created");
+        created
+            .publish("work".to_owned())
+            .expect("publish should succeed");
+        let opened = QueueBuilder::<_, String>::new(store, "tests", "jobs")
+            .schema("job-v1")
+            .open_or_create()
+            .expect("existing queue should open");
+        assert_eq!(opened.len().expect("read should succeed"), 1);
+    }
+
+    #[test]
+    fn rejects_zero_and_sub_millisecond_leases() {
+        let queue = queue(ManualClock::new(1_000));
+        assert!(matches!(
+            queue.claim(Duration::ZERO),
+            Err(Error::InvalidLeaseDuration)
+        ));
+        assert!(matches!(
+            queue.claim(Duration::from_nanos(1)),
+            Err(Error::InvalidLeaseDuration)
+        ));
+    }
+
+    #[test]
+    fn ack_classifies_missing_and_unclaimed_messages() {
+        let queue = queue(ManualClock::new(1_000));
+        let token = LeaseToken(Uuid::nil());
+        assert_eq!(
+            queue
+                .ack(MessageId(Uuid::nil()), token)
+                .expect("ack should be classified"),
+            Ack::NotFound
+        );
+        let id = queue
+            .publish("work".to_owned())
+            .expect("publish should succeed");
+        assert_eq!(
+            queue.ack(id, token).expect("ack should be classified"),
+            Ack::LeaseMismatch
+        );
     }
 }
