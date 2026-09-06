@@ -76,8 +76,10 @@ groups.
 ## Queue
 
 The publishable `objsds-queue` crate provides direct `publish`, `claim`, and
-`ack` operations. A claim grants a time-bounded lease; if it is not
-acknowledged, the message becomes claimable again at the lease deadline. Each
+`ack` operations. Rust callers construct its `QueueBuilder` directly from an
+`ObjectStore`, keeping the queue independent of the core `Objsds` client. A
+claim grants a time-bounded lease; if it is not acknowledged, the message
+becomes claimable again at the lease deadline. Each
 reclaim receives a new opaque lease token, so an old worker cannot acknowledge
 a newer claim.
 
