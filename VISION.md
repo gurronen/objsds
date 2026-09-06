@@ -129,3 +129,5 @@ designs and must not erode the one-object guarantee silently.
 6. Implement and test a blocking S3-compatible adapter against local RustFS.
 7. Run backend-contract and full Map/Log journeys through a dedicated,
    unpublished end-to-end test crate managed by Pitchfork.
+8. Add a brokerless single-object queue with direct publish/claim/ack,
+   at-least-once delivery, and expiring leases.
