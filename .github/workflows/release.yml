@@ -83,7 +83,9 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets --all-features -- -D warnings
           cargo test --workspace --all-targets
-          cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked --allow-dirty
+          # Workspace compilation is covered above. Dependency tarballs are not
+          # on crates.io yet, so only validate package assembly at this stage.
+          cargo package --workspace --exclude objsds-tests --exclude objsds-napi --locked --allow-dirty --no-verify
 
   native-build:
     needs: version

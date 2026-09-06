@@ -22,7 +22,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use objsds_store::{CreateError, Location, ObjectStore, ReplaceError, Version};
+use objsds_store::{CreateError, Location, ObjectStore, ReplaceError, Version, is_path_segment};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -234,13 +234,17 @@ impl<S, V, C> QueueBuilder<S, V, C> {
     }
 
     fn finish(self) -> Result<Queue<S, V, C>, BuildError> {
-        validate_segment(&self.namespace).map_err(|()| BuildError::InvalidNamespace)?;
-        validate_segment(&self.name).map_err(|()| BuildError::InvalidName)?;
+        if !is_path_segment(&self.namespace) {
+            return Err(BuildError::InvalidNamespace);
+        }
+        if !is_path_segment(&self.name) {
+            return Err(BuildError::InvalidName);
+        }
         let schema = self
             .schema
             .filter(|schema| !schema.is_empty())
             .ok_or(BuildError::MissingSchema)?;
-        let location = Location::new(format!("{}/queues/{}.json", self.namespace, self.name))
+        let location = Location::structure(&self.namespace, "queues", &self.name)
             .map_err(|_| BuildError::InvalidName)?;
         Ok(Queue {
             store: self.store,
@@ -487,14 +491,6 @@ fn map_create<E>(error: CreateError<E>) -> Error<E> {
     match error {
         CreateError::AlreadyExists { observed } => Error::AlreadyExists(observed),
         CreateError::Store(error) => Error::Store(error),
-    }
-}
-
-fn validate_segment(value: &str) -> Result<(), ()> {
-    if value.is_empty() || value == "." || value == ".." || value.contains('/') {
-        Err(())
-    } else {
-        Ok(())
     }
 }
 
