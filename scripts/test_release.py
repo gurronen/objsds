@@ -73,6 +73,12 @@ class ReleaseTests(unittest.TestCase):
                 release.validate("01.2.3")
         runner.assert_not_called()
 
+    def test_validate_rejects_existing_git_tag(self) -> None:
+        with patch.object(release, "run") as runner:
+            with self.assertRaisesRegex(RuntimeError, "tag v1.2.3 already exists"):
+                release.validate("1.2.3", status=lambda *_: 404, tag_exists=lambda _: True)
+        runner.assert_not_called()
+
     def test_registry_requests_retry_transient_timeouts(self) -> None:
         with patch.object(
             release.urllib.request,
