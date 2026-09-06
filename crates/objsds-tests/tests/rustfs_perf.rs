@@ -165,7 +165,7 @@ fn rustfs_queue_work_item_throughput() -> Result<(), Box<dyn Error>> {
                     }
                 };
                 let Some(claim) = claim else {
-                    thread::yield_now();
+                    thread::sleep(INITIAL_RETRY_DELAY);
                     continue;
                 };
                 loop {
@@ -174,8 +174,8 @@ fn rustfs_queue_work_item_throughput() -> Result<(), Box<dyn Error>> {
                             completed.fetch_add(1, Ordering::AcqRel);
                             break;
                         }
-                        Ok(outcome) => {
-                            return Err(format!("unexpected acknowledgement outcome: {outcome:?}"));
+                        Ok(Ack::LeaseExpired | Ack::LeaseMismatch | Ack::NotFound) => {
+                            break;
                         }
                         Err(QueueError::Conflict { .. }) => conflicts += 1,
                         Err(error) if is_transient_queue(&error) => {
