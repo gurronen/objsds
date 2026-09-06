@@ -5,7 +5,7 @@ import { Objsds, ObjsdsError } from "../src/index.js";
 
 const enabled = process.env.OBJSDS_RUSTFS_E2E === "1";
 
-test("persists Map and Log data through the RustFS S3 adapter", { skip: !enabled }, async () => {
+test("persists Map, Log, and Queue data through the RustFS S3 adapter", { skip: !enabled }, async () => {
   const namespace = `node-rustfs-${process.pid}-${Date.now()}`;
   const client = Objsds.s3({
     namespace,
@@ -25,6 +25,9 @@ test("persists Map and Log data through the RustFS S3 adapter", { skip: !enabled
   const log = await client.log<string>("events", { schema: "event-v1" }).create();
   const id = await log.append("created");
 
+  const queue = await client.queue<string>("jobs", { schema: "job-v1" }).create();
+  const messageId = await queue.publish("index-user");
+
   const reopened = Objsds.s3({
     namespace,
     bucket: "objsds-e2e",
@@ -41,6 +44,12 @@ test("persists Map and Log data through the RustFS S3 adapter", { skip: !enabled
     id,
     value: "created",
   });
+  const reopenedQueue = await reopened.queue<string>("jobs", { schema: "job-v1" }).open();
+  const claim = await reopenedQueue.claim(30_000);
+  assert.ok(claim);
+  assert.equal(claim.id, messageId);
+  assert.equal(claim.value, "index-user");
+  assert.equal(await reopenedQueue.ack(claim.id, claim.leaseToken), "acknowledged");
 });
 
 test("surfaces CAS conflicts under S3 write contention without retrying", { skip: !enabled }, async () => {

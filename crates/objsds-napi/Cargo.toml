@@ -20,6 +20,7 @@ workspace = true
 napi.workspace = true
 napi-derive.workspace = true
 objsds.workspace = true
+objsds-queue.workspace = true
 objsds-store.workspace = true
 objsds-store-filesystem.workspace = true
 objsds-store-memory.workspace = true
