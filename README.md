@@ -83,7 +83,9 @@ a newer claim.
 
 Delivery is **at least once**, not exactly once. Workers must make handlers
 idempotent because processing may complete before a failed acknowledgement and
-because lease expiry permits concurrent duplicate processing. Lease safety
+because lease expiry permits concurrent duplicate processing. Only a successful
+`Ack::Acknowledged` is durable; `NotFound`, `LeaseMismatch`, and `LeaseExpired`
+are snapshot classifications and are not written back. Lease safety
 across processes depends on clock synchronization. There is no broker,
 consumer group, group commit, long polling, automatic CAS retry, or dead-letter
 queue. Like Map and Log, the complete queue is one bounded JSON object and each

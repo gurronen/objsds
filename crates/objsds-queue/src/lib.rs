@@ -9,6 +9,9 @@
 //! grants one time-bounded lease; an unacknowledged message becomes claimable
 //! again when that lease expires. Acknowledgement permanently removes the
 //! message only when its current lease token matches and has not expired.
+//! [`Ack::NotFound`], [`Ack::LeaseMismatch`], and [`Ack::LeaseExpired`] are
+//! classifications of the snapshot that was read; they are not written back.
+//! Only [`Ack::Acknowledged`] is made durable with a successful compare-and-swap.
 //! Consequently handlers must be idempotent: a worker can finish its side
 //! effect and fail before acknowledgement, and lease expiry can allow another
 //! worker to process the same message. There is no exactly-once delivery,
@@ -92,15 +95,19 @@ pub struct Claim<V> {
 }
 
 /// Outcome of an acknowledgement attempt.
+///
+/// Negative variants are classified from the snapshot that was read and do not
+/// perform a write. A concurrent claim or acknowledgement can make them stale.
+/// Only [`Ack::Acknowledged`] is durable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Ack {
     /// The current claim was acknowledged and the message was removed.
     Acknowledged,
-    /// No queued message has that identifier.
+    /// No queued message has that identifier in the snapshot that was read.
     NotFound,
-    /// Another claim currently owns the message.
+    /// The snapshot's lease token does not match, or the message has no lease.
     LeaseMismatch,
-    /// The matching lease has expired and cannot acknowledge the message.
+    /// The matching lease has expired in the snapshot that was read.
     LeaseExpired,
 }
 
@@ -391,6 +398,10 @@ where
     }
 
     /// Acknowledges and removes a message when the current unexpired lease matches.
+    ///
+    /// [`Ack::Acknowledged`] is the only durable outcome. Other [`Ack`] values
+    /// return without writing, so callers must not treat them as a stable
+    /// terminal state without reading a fresh snapshot or claiming again.
     pub fn ack(&self, id: MessageId, token: LeaseToken) -> Result<Ack, Error<S::Error>> {
         let now = self.clock.now_millis();
         let (version, mut document) = self.read()?;
